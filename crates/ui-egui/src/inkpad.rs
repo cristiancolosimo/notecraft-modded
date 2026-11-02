@@ -15,7 +15,7 @@
 
 use crate::theme::Tokens;
 use egui::{Sense, Ui, vec2};
-use notecraft_ink::{Dab, Drawing, Rgb, Stroke, Tool, pick, shape, svg};
+use notecraft_ink::{Dab, Drawing, Rgb, Stroke, Tool, journal, pick, shape, svg};
 use std::path::{Path, PathBuf};
 
 /// What the pen is set to do, as the Draw tab has it.
@@ -107,6 +107,38 @@ pub fn pen_samples(events: &[egui::Event], fallback: f32) -> Vec<(egui::Pos2, f3
     pen
 }
 
+/// The journal beside `ink.svg`: the strokes finished since the file was last written out, as compact
+/// binary records (see `notecraft_ink::journal`).
+const JOURNAL: &str = "ink.journal";
+/// Where an `ink.svg` that cannot be read is set aside, so it is not written over.
+const UNREADABLE: &str = "ink.unreadable.svg";
+
+/// What a background write leaves for the page to find: how much of the journal it folded in, or why
+/// it failed.
+type Writing = std::sync::Arc<std::sync::Mutex<Option<Result<usize, String>>>>;
+
+/// A number that changes when any stroke does (how many readings, where the first and last are,
+/// what it is drawn with), cheap enough to take on every save. It is how a stroke rubbed out, moved
+/// or stretched is told from one added at the end.
+fn fingerprint(strokes: &[Stroke]) -> u64 {
+    strokes.iter().fold(0xcbf2_9ce4_8422_2325, |h, s| (h ^ stroke_fingerprint(s)).wrapping_mul(0x0000_0100_0000_01b3))
+}
+
+/// The same for one stroke.
+fn stroke_fingerprint(s: &Stroke) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut mix = |v: u64| {
+        h ^= v;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    };
+    mix(s.dabs.len() as u64);
+    mix(u64::from(s.width.to_bits()) << 32 | u64::from(s.colour.0) << 16 | u64::from(s.colour.1) << 8 | u64::from(s.colour.2));
+    for d in [s.dabs.first(), s.dabs.last()].into_iter().flatten() {
+        mix(u64::from(d.x.to_bits()) << 32 | u64::from(d.y.to_bits()));
+    }
+    h
+}
+
 /// How close to the right edge of the column ink has to come before the page grows sideways.
 const EDGE: f32 = 120.0;
 
@@ -145,6 +177,22 @@ pub struct Pad {
     /// has `redo_len` strokes, that is, while nothing has been drawn or rubbed out since.
     redone: Vec<Stroke>,
     redo_len: usize,
+    /// How the ink is kept on disk (see [`Pad::save`]): `ink.svg` plus a journal of strokes finished since
+    /// it was last written out. Entries are numbered for as long as the page lives; the ones below
+    /// `folded` are already in the file. `persisted` strokes of the drawing, whose fingerprint is `fp`,
+    /// are on disk (in the file or the journal); `writing` is a full write going on in the background.
+    next_entry: usize,
+    folded: usize,
+    persisted: usize,
+    fp: u64,
+    rewrite: bool,
+    journal_bytes: usize,
+    last_change: Option<web_time::Instant>,
+    writing: Option<Writing>,
+    /// The shapes of finished strokes already worked out, by place in the drawing, at the zoom they were made
+    /// for; each says which stroke it is for, so a stroke that changed or moved is made again.
+    shapes: std::collections::HashMap<usize, (u64, Vec<egui::Shape>)>,
+    shapes_zoom: u32,
     /// Where the pointer was when a move or a stretch began, and the box as it was then.
     grabbed: Option<(egui::Pos2, (f32, f32, f32, f32), Grab)>,
 }
@@ -159,13 +207,48 @@ enum Grab {
 }
 
 impl Pad {
-    /// The ink of the page in `page_dir`: what is in its `ink.svg`, or an empty layer when
-    /// it has none. Every page has a layer; the file appears the first time the page is
-    /// drawn on, so a page nobody has drawn on stays as clean as it was.
+    /// The ink of the page in `page_dir`: what is in its `ink.svg` and in its journal, or an empty
+    /// layer when it has neither. Every page has a layer; the file appears the first time the page
+    /// is drawn on, so a page nobody has drawn on stays as clean as it was.
     pub fn of_page(page_dir: &Path) -> Pad {
         let file = page_dir.join(FILE);
-        let (drawing, flat) =
-            std::fs::read_to_string(&file).ok().and_then(|text| svg::read(&text).ok()).unwrap_or_else(|| (Drawing::new(SHEET_W, SHEET_H), 0));
+        let (mut drawing, flat, folded) = match std::fs::read_to_string(&file) {
+            Ok(text) if text.trim().is_empty() => (Drawing::new(SHEET_W, SHEET_H), 0, 0),
+            Ok(text) => match svg::read(&text) {
+                Ok((drawing, flat)) => (drawing, flat, svg::folded(&text)),
+                Err(e) => {
+                    // A file that cannot be read must not be written over by the next stroke: it is
+                    // set aside where the owner can find it.
+                    log::error!("the ink of {} cannot be read ({e}); keeping it as {UNREADABLE}", file.display());
+                    let _ = std::fs::rename(&file, file.with_file_name(UNREADABLE));
+                    (Drawing::new(SHEET_W, SHEET_H), 0, 0)
+                }
+            },
+            Err(_) => (Drawing::new(SHEET_W, SHEET_H), 0, 0),
+        };
+        // The journal: strokes finished since the file was last written out, in the order they were
+        // finished. Entries the file already holds are not added twice, and a record torn by a
+        // crash is cut off so the next stroke is not appended after it.
+        let mut next_entry = folded;
+        let mut journal_bytes = 0;
+        let journal_file = page_dir.join(JOURNAL);
+        if let Ok(bytes) = std::fs::read(&journal_file)
+            && let Some(journal) = journal::decode(&bytes)
+        {
+            if journal.valid < bytes.len()
+                && let Ok(f) = std::fs::OpenOptions::new().write(true).open(&journal_file)
+            {
+                let _ = f.set_len(journal.valid as u64);
+            }
+            journal_bytes = journal.valid;
+            next_entry = (journal.base + journal.strokes.len()).max(folded);
+            let skip = folded.saturating_sub(journal.base).min(journal.strokes.len());
+            for stroke in journal.strokes.into_iter().skip(skip) {
+                drawing.add(stroke);
+            }
+        }
+        let persisted = drawing.strokes.len();
+        let fp = fingerprint(&drawing.strokes);
         Pad {
             file,
             drawing,
@@ -177,6 +260,16 @@ impl Pad {
             shape_from: None,
             redone: Vec::new(),
             redo_len: 0,
+            next_entry,
+            folded,
+            persisted,
+            fp,
+            rewrite: false,
+            journal_bytes,
+            last_change: None,
+            writing: None,
+            shapes: std::collections::HashMap::new(),
+            shapes_zoom: 0,
             grabbed: None,
         }
     }
@@ -190,7 +283,15 @@ impl Pad {
         far
     }
 
-    /// Writes the ink, with its readings, which is what the page keeps.
+    fn journal_file(&self) -> PathBuf {
+        self.file.with_file_name(JOURNAL)
+    }
+
+    /// Makes what is on the page safe on disk, as cheaply as it can be done: a stroke finished at the
+    /// end of the drawing is one line added to the page's journal, so a page with thousands of strokes
+    /// costs no more to save than a page with one. Anything else (a stroke rubbed out, moved,
+    /// taken back) changes what came before, and is written as a whole in the background.
+    /// The first save of a page writes `ink.svg` itself, at once; a page with no ink loses its files.
     pub fn save(&mut self) -> std::io::Result<()> {
         // The sheet the file declares is at least as big as the ink, which may run on past the
         // usual page.
@@ -200,19 +301,160 @@ impl Pad {
         if let Some(parent) = self.file.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        // A page drawn on and then rubbed clean loses its file rather than keeping an
-        // empty one, so a page with no ink has no ink in its folder either.
+        // A page drawn on and then rubbed clean loses its files rather than keeping empty ones, so
+        // a page with no ink has no ink in its folder either.
         if self.drawing.is_empty() {
-            match std::fs::remove_file(&self.file) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e),
+            for file in [self.file.clone(), self.journal_file()] {
+                match std::fs::remove_file(&file) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e),
+                }
             }
+            (self.next_entry, self.folded, self.persisted, self.journal_bytes, self.rewrite) = (0, 0, 0, 0, false);
+            self.fp = fingerprint(&self.drawing.strokes);
+            self.dirty = false;
+            return Ok(());
+        }
+        self.last_change = Some(web_time::Instant::now());
+        if !self.file.exists() {
+            self.write_whole_now()?;
         } else {
-            std::fs::write(&self.file, svg::write(&self.drawing, svg::Flavour::Editable))?;
+            let len = self.drawing.strokes.len();
+            let kept = self.persisted.min(len);
+            if self.persisted > len || fingerprint(&self.drawing.strokes[..kept]) != self.fp {
+                self.rewrite = true;
+            }
+            if self.rewrite {
+                self.start_whole_write();
+            } else {
+                self.append_new()?;
+            }
         }
         self.dirty = false;
         Ok(())
+    }
+
+    /// The whole drawing into `ink.svg`, now. Everything in the journal is in it, so the journal goes.
+    fn write_whole_now(&mut self) -> std::io::Result<()> {
+        std::fs::write(&self.file, svg::write_folded(&self.drawing, svg::Flavour::Editable, self.next_entry))?;
+        self.folded = self.next_entry;
+        self.persisted = self.drawing.strokes.len();
+        self.fp = fingerprint(&self.drawing.strokes);
+        self.rewrite = false;
+        self.drop_journal();
+        Ok(())
+    }
+
+    fn drop_journal(&mut self) {
+        let _ = std::fs::remove_file(self.journal_file());
+        self.journal_bytes = 0;
+    }
+
+    /// The strokes finished since the last save, as lines at the end of the journal.
+    fn append_new(&mut self) -> std::io::Result<()> {
+        use std::io::Write;
+        let fresh = &self.drawing.strokes[self.persisted.min(self.drawing.strokes.len())..];
+        if fresh.is_empty() {
+            return Ok(());
+        }
+        let records: Vec<Vec<u8>> = fresh.iter().filter_map(journal::encode).collect();
+        let path = self.journal_file();
+        let mut out = Vec::new();
+        if std::fs::metadata(&path).map_or(true, |m| m.len() < journal::HEADER as u64) {
+            out.extend(journal::header(self.next_entry));
+        }
+        for record in &records {
+            out.extend_from_slice(record);
+        }
+        std::fs::OpenOptions::new().create(true).append(true).open(&path)?.write_all(&out)?;
+        self.journal_bytes += out.len();
+        self.next_entry += records.len();
+        self.persisted = self.drawing.strokes.len();
+        self.fp = fingerprint(&self.drawing.strokes);
+        Ok(())
+    }
+
+    /// Writes the whole drawing to `ink.svg` on another thread, so a big page does not stall the one
+    /// that is drawing. The copy written says how much of the journal it holds; more strokes may be
+    /// added to the journal while it is written, and they are kept. Only one write at a time.
+    fn start_whole_write(&mut self) {
+        if self.writing.is_some() {
+            return;
+        }
+        let (drawing, folded, file) = (self.drawing.clone(), self.next_entry, self.file.clone());
+        self.persisted = drawing.strokes.len();
+        self.fp = fingerprint(&drawing.strokes);
+        self.rewrite = false;
+        let slot: Writing = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let done = slot.clone();
+        let work = move || {
+            let tmp = file.with_extension("svg.tmp");
+            let result = std::fs::write(&tmp, svg::write_folded(&drawing, svg::Flavour::Editable, folded))
+                .and_then(|()| std::fs::rename(&tmp, &file))
+                .map(|()| folded)
+                .map_err(|e| e.to_string());
+            if let Ok(mut slot) = done.lock() {
+                *slot = Some(result);
+            }
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        std::thread::spawn(work);
+        #[cfg(target_arch = "wasm32")]
+        work();
+        self.writing = Some(slot);
+    }
+
+    /// Housekeeping, once a frame: takes in a finished background write, and starts the next one when
+    /// the journal has grown (forty strokes, or two megabytes) or the pen has been still for three
+    /// seconds. Returns how long until it next has something to do, so the window can wake for it.
+    pub fn maintain(&mut self) -> Option<std::time::Duration> {
+        use std::time::Duration;
+        if let Some(slot) = &self.writing {
+            let finished = slot.lock().ok().and_then(|mut s| s.take());
+            match finished {
+                None => return Some(Duration::from_millis(150)),
+                Some(Ok(folded)) => {
+                    self.writing = None;
+                    self.folded = self.folded.max(folded);
+                    if self.next_entry == self.folded {
+                        self.drop_journal();
+                    }
+                }
+                Some(Err(e)) => {
+                    self.writing = None;
+                    log::warn!("the ink of {} could not be written out: {e}", self.file.display());
+                    self.rewrite = true;
+                }
+            }
+        }
+        if self.rewrite {
+            self.start_whole_write();
+            return Some(Duration::from_millis(150));
+        }
+        let unfolded = self.next_entry.saturating_sub(self.folded);
+        if unfolded == 0 {
+            return None;
+        }
+        let idle = self.last_change.map_or(Duration::MAX, |t| t.elapsed());
+        const QUIET: Duration = Duration::from_secs(3);
+        if unfolded >= 40 || self.journal_bytes >= 2_000_000 || idle >= QUIET {
+            self.start_whole_write();
+            return Some(Duration::from_millis(150));
+        }
+        Some(QUIET - idle)
+    }
+
+    /// Starts writing out whatever the journal holds, for when the page is about to be left.
+    pub fn flush(&mut self) {
+        if self.next_entry > self.folded || self.rewrite {
+            self.start_whole_write();
+        }
+    }
+
+    /// Whether a background write of the whole drawing is going on (for tests and the status).
+    pub fn writing(&self) -> bool {
+        self.writing.is_some()
     }
 
     /// Writes it again as a plain picture, beside the ink, for sending somewhere else.
@@ -330,10 +572,39 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
         egui::pos2((seen.min.x - body.min.x) / zoom, (seen.min.y - body.min.y) / zoom),
         egui::pos2((seen.max.x - body.min.x) / zoom, (seen.max.y - body.min.y) / zoom),
     );
-    for stroke in pad.drawing.strokes.iter().chain(pad.drawing_now.iter()) {
-        if !crate::inkpad::may_show(stroke, visible) {
+    // Finished strokes: the shapes of each are made once and moved into place, so drawing a page of
+    // thousands costs what is in view and not what was ever drawn. A stroke that changed, moved or
+    // was rubbed out has a different fingerprint and is made again; a new zoom starts afresh.
+    if pad.shapes_zoom != zoom.to_bits() || pad.shapes.len() > 1500 {
+        pad.shapes.clear();
+        pad.shapes_zoom = zoom.to_bits();
+    }
+    let delta = body.min.to_vec2();
+    for (i, stroke) in pad.drawing.strokes.iter().enumerate() {
+        if !may_show(stroke, visible) {
             continue;
         }
+        let key = stroke_fingerprint(stroke);
+        let made = match pad.shapes.get(&i) {
+            Some((k, shapes)) if *k == key => shapes,
+            _ => {
+                let mut scaled = stroke.clone();
+                scaled.width *= zoom;
+                for dab in &mut scaled.dabs {
+                    dab.x *= zoom;
+                    dab.y *= zoom;
+                }
+                &pad.shapes.entry(i).insert_entry((key, stroke_shapes(egui::Pos2::ZERO, &scaled))).into_mut().1
+            }
+        };
+        for shape in made {
+            let mut shape = shape.clone();
+            shape.translate(delta);
+            painter.add(shape);
+        }
+    }
+    // The stroke being drawn changes every frame, so it is made every frame.
+    if let Some(stroke) = pad.drawing_now.as_ref() {
         let mut scaled = stroke.clone();
         scaled.width *= zoom;
         for dab in &mut scaled.dabs {
@@ -575,15 +846,26 @@ fn as_tuple(b: egui::Rect, body: egui::Rect, zoom: f32) -> (f32, f32, f32, f32) 
 /// end. The edges are the ones the saved outline is built from, so the screen and the file
 /// show the same shape.
 pub fn paint_stroke(painter: &egui::Painter, origin: egui::Pos2, stroke: &Stroke) {
+    for shape in stroke_shapes(origin, stroke) {
+        painter.add(shape);
+    }
+}
+
+/// What it takes to draw one stroke: the ribbon of the line as a mesh, and a disc at each end. Making
+/// these is the cost of drawing ink (the outline of the line), so a finished stroke's are kept (see
+/// [`Pad::show`]) and moved into place rather than made again every frame.
+pub fn stroke_shapes(origin: egui::Pos2, stroke: &Stroke) -> Vec<egui::Shape> {
     let colour = egui::Color32::from_rgb(stroke.colour.0, stroke.colour.1, stroke.colour.2).gamma_multiply(stroke.tool.opacity());
     let put = |x: f32, y: f32| egui::pos2(origin.x + x, origin.y + y);
     let (left, right) = shape::sides(stroke);
     if left.len() < 2 {
         // A dot: one reading, so there is no ribbon, only a blob.
-        if let Some(d) = stroke.dabs.first() {
-            painter.circle_filled(put(d.x, d.y), shape::width_at(stroke, d.pressure) / 2.0, colour);
-        }
-        return;
+        return stroke
+            .dabs
+            .first()
+            .map(|d| egui::Shape::circle_filled(put(d.x, d.y), shape::width_at(stroke, d.pressure) / 2.0, colour))
+            .into_iter()
+            .collect();
     }
     let mut mesh = egui::Mesh::default();
     for (l, r) in left.iter().zip(&right) {
@@ -596,12 +878,13 @@ pub fn paint_stroke(painter: &egui::Painter, origin: egui::Pos2, stroke: &Stroke
         mesh.add_triangle(a, b, c);
         mesh.add_triangle(b, c, d);
     }
-    painter.add(egui::Shape::mesh(mesh));
+    let mut shapes = vec![egui::Shape::mesh(mesh)];
     // Round the two ends, which is what the saved outline does with its half circles.
     let line = shape::centre(stroke);
     for end in [line.first(), line.last()].into_iter().flatten() {
-        painter.circle_filled(put(end.x, end.y), shape::width_at(stroke, end.pressure) / 2.0, colour);
+        shapes.push(egui::Shape::circle_filled(put(end.x, end.y), shape::width_at(stroke, end.pressure) / 2.0, colour));
     }
+    shapes
 }
 
 #[cfg(test)]
@@ -781,5 +1064,165 @@ mod tests {
         edge.width = 40.0;
         assert!(may_show(&edge, egui::Rect::from_min_max(egui::pos2(805.0, 0.0), egui::pos2(900.0, 600.0))), "its thick line reaches in");
         assert!(!may_show(&Stroke::new(Tool::Pen, Rgb::BLACK, 3.0), on_screen), "a stroke with no readings has nothing to draw");
+    }
+
+    /// Waits for the background write to finish, as the window would over a few frames.
+    fn settle(pad: &mut Pad) {
+        for _ in 0..400 {
+            if pad.maintain().is_none() && !pad.writing() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("the background write did not finish");
+    }
+
+    fn paths(file: &std::path::Path) -> usize {
+        std::fs::read_to_string(file).unwrap_or_default().matches("<path").count()
+    }
+
+    /// How many strokes the journal holds, and the number of its first entry.
+    fn entries(page: &std::path::Path) -> (usize, usize) {
+        std::fs::read(page.join(JOURNAL)).ok().and_then(|b| journal::decode(&b)).map_or((0, 0), |j| (j.strokes.len(), j.base))
+    }
+
+    #[test]
+    fn a_stroke_after_the_first_costs_a_line_of_the_journal_not_the_whole_file() {
+        let t = TempDir::new("ink-journal");
+        let page = t.path().to_path_buf();
+        let mut pad = Pad::of_page(&page);
+        pad.drawing.add(stroke(10.0));
+        pad.save().expect("first save writes the file");
+        let file = std::fs::read(page.join(FILE)).expect("the file");
+        assert_eq!(paths(&page.join(FILE)), 1);
+        pad.drawing.add(stroke(50.0));
+        pad.save().expect("second");
+        pad.drawing.add(stroke(90.0));
+        pad.save().expect("third");
+
+        assert_eq!(std::fs::read(page.join(FILE)).expect("the file"), file, "ink.svg was not touched");
+        assert_eq!(entries(&page).0, 2, "the two later strokes are in the journal");
+        let again = Pad::of_page(&page);
+        assert_eq!(again.strokes(), 3, "and the page comes back with all three");
+    }
+
+    #[test]
+    fn the_journal_is_folded_into_the_file_in_the_background_and_goes() {
+        let t = TempDir::new("ink-fold");
+        let page = t.path().to_path_buf();
+        let mut pad = Pad::of_page(&page);
+        for x in [10.0, 50.0, 90.0] {
+            pad.drawing.add(stroke(x));
+            pad.save().expect("save");
+        }
+        pad.flush();
+        settle(&mut pad);
+        assert!(!page.join(JOURNAL).exists(), "everything is in the file now");
+        assert_eq!(paths(&page.join(FILE)), 3);
+        assert_eq!(Pad::of_page(&page).strokes(), 3);
+
+        // Later strokes start a new journal that carries on the numbering, and are not lost or doubled.
+        pad.drawing.add(stroke(130.0));
+        pad.save().expect("save");
+        let again = Pad::of_page(&page);
+        assert_eq!(again.strokes(), 4);
+        assert_eq!(entries(&page), (1, 2), "one entry, numbered on from the two before");
+    }
+
+    #[test]
+    fn a_journal_that_is_forty_strokes_long_is_folded_without_being_asked() {
+        let t = TempDir::new("ink-forty");
+        let page = t.path().to_path_buf();
+        let mut pad = Pad::of_page(&page);
+        for i in 0..42 {
+            pad.drawing.add(stroke(i as f32 * 5.0));
+            pad.save().expect("save");
+            pad.maintain();
+        }
+        settle(&mut pad);
+        assert_eq!(Pad::of_page(&page).strokes(), 42);
+        assert!(paths(&page.join(FILE)) >= 41, "the file caught up: {}", paths(&page.join(FILE)));
+    }
+
+    #[test]
+    fn taking_a_stroke_back_is_written_as_a_whole_and_is_not_lost_to_the_journal() {
+        let t = TempDir::new("ink-rewrite");
+        let page = t.path().to_path_buf();
+        let mut pad = Pad::of_page(&page);
+        for x in [10.0, 50.0, 90.0] {
+            pad.drawing.add(stroke(x));
+            pad.save().expect("save");
+        }
+        assert!(pad.undo());
+        pad.save().expect("save after undo");
+        settle(&mut pad);
+        assert_eq!(Pad::of_page(&page).strokes(), 2, "the stroke taken back does not come back");
+
+        // Something rubbed out from the middle, too.
+        pad.drawing.strokes.remove(0);
+        pad.save().expect("save after erasing");
+        settle(&mut pad);
+        let again = Pad::of_page(&page);
+        assert_eq!(again.strokes(), 1);
+        assert_eq!(again.drawing.strokes[0].dabs[0].x, 50.0);
+    }
+
+    #[test]
+    fn a_half_written_last_line_and_entries_already_in_the_file_are_not_strokes() {
+        let t = TempDir::new("ink-crash");
+        let page = t.path().to_path_buf();
+        let mut drawing = Drawing::new(SHEET_W, SHEET_H);
+        drawing.add(stroke(10.0));
+        drawing.add(stroke(50.0));
+        std::fs::write(page.join(FILE), svg::write_folded(&drawing, svg::Flavour::Editable, 2)).expect("file");
+        // Entries 0 and 1 are in the file already; 2 is new; the last record was cut off by a crash.
+        let mut bytes = journal::header(0);
+        for x in [10.0, 50.0, 90.0, 130.0] {
+            bytes.extend(journal::encode(&stroke(x)).expect("record"));
+        }
+        bytes.truncate(bytes.len() - 7);
+        std::fs::write(page.join(JOURNAL), &bytes).expect("journal");
+        let pad = Pad::of_page(&page);
+        assert_eq!(pad.strokes(), 3, "the two in the file, the one new, and not the torn record");
+        // The torn end was cut off, so the next stroke is not appended after garbage.
+        let mut pad = pad;
+        pad.drawing.add(stroke(170.0));
+        pad.save().expect("save");
+        assert_eq!(Pad::of_page(&page).strokes(), 4);
+    }
+
+    #[test]
+    fn an_ink_file_that_cannot_be_read_is_kept_not_written_over() {
+        let t = TempDir::new("ink-keep");
+        let page = t.path().to_path_buf();
+        std::fs::write(page.join(FILE), "this is not a drawing").expect("write");
+        let mut pad = Pad::of_page(&page);
+        assert!(pad.is_empty());
+        assert_eq!(std::fs::read_to_string(page.join(UNREADABLE)).expect("kept"), "this is not a drawing");
+        pad.drawing.add(stroke(10.0));
+        pad.save().expect("save");
+        assert!(page.join(UNREADABLE).exists(), "still there after the next stroke");
+    }
+
+    #[test]
+    fn shapes_made_once_and_moved_into_place_are_the_shapes_made_in_place() {
+        let mut long = Stroke::new(Tool::Pen, Rgb(0xd0, 0x21, 0x21), 4.0);
+        for i in 0..30 {
+            long.add(Dab::new(i as f32 * 4.0, (i as f32 * 0.4).sin() * 9.0, 0.3 + 0.02 * i as f32));
+        }
+        let origin = egui::pos2(120.0, 340.0);
+        let direct = stroke_shapes(origin, &long);
+        let mut moved = stroke_shapes(egui::Pos2::ZERO, &long);
+        for shape in &mut moved {
+            shape.translate(origin.to_vec2());
+        }
+        assert_eq!(direct.len(), 3, "the ribbon and a disc at each end");
+        assert_eq!(direct.len(), moved.len());
+        let (egui::Shape::Mesh(a), egui::Shape::Mesh(b)) = (&direct[0], &moved[0]) else { panic!("the first shape is the ribbon") };
+        assert_eq!(a.vertices.len(), b.vertices.len());
+        for (x, y) in a.vertices.iter().zip(&b.vertices) {
+            assert!((x.pos - y.pos).length() < 0.01, "{:?} {:?}", x.pos, y.pos);
+        }
+        assert_ne!(stroke_fingerprint(&long), stroke_fingerprint(&stroke(10.0)), "different strokes are told apart");
     }
 }

@@ -1174,6 +1174,9 @@ impl NoteCraftApp {
             } else {
                 log::debug!("attachment recovery scan found no missing icons: page={:?} attachments={}", dir, attachments.len());
             }
+            if let Some(old) = self.pad.as_mut() {
+                old.flush();
+            }
             self.pad = Some(crate::inkpad::Pad::of_page(dir));
             self.absorb_old_sheets(dir);
             self.sync_ink_reference();
@@ -3162,6 +3165,9 @@ impl NoteCraftApp {
         // A drawing that was typed in is read again, so what the pen does next is done to
         // the file as it now stands rather than to the one the window remembered.
         if notecraft_ink::svg::is_ink(text) {
+            if let Some(old) = self.pad.as_mut() {
+                old.flush();
+            }
             self.pad = Some(crate::inkpad::Pad::of_page(&dir));
         }
         self.sync_ink_reference();
@@ -5969,6 +5975,10 @@ impl NoteCraftApp {
         self.poll_control(ctx);
         self.poll_import(ctx);
         self.poll_sync(ctx);
+        // The ink's journal is folded into its file in the background; wake when it is time to.
+        if let Some(wait) = self.pad.as_mut().and_then(|pad| pad.maintain()) {
+            ctx.request_repaint_after(wait);
+        }
         if self.show_perf {
             self.perf.frame(web_time::Instant::now());
         }

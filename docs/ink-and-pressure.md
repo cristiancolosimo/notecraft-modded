@@ -54,3 +54,28 @@ Synthetic tests must cover pressures `0`, `0.1`, `0.25`, `0.5`, `0.75`, and `1.0
 neutral, and maximum sensitivity. Verify monotonic widths, full-pressure maximums, visible
 light-to-hard separation, finite bounded values, and behavior in both light and dark themes.
 Repeat with a real pressure pen and a mouse before claiming pressure behavior is complete.
+
+## How a page's ink is kept on disk
+
+`ink.svg` is the page's ink: every stroke as an outline any viewer can draw, with the pen's
+readings beside it. Making that file is slow for a big page (the outline of every stroke, about
+160 bytes a reading), so it is not remade for every stroke.
+
+- The first stroke of a page writes `ink.svg` at once.
+- Every later finished stroke is appended to `ink.journal` as a compact binary record: the tool,
+  colour, width and the readings as the pen gave them (about 12 bytes a reading, nothing worked
+  out). That costs one stroke, however big the page is. The records are numbered for as long as
+  the page lives and carry a checksum; a record cut short by a crash ends the journal and is
+  cut off the next time the page opens.
+- In the background, when the journal reaches forty strokes or two megabytes, or the pen has been
+  still for three seconds, or the page is left, the whole drawing is written out to `ink.svg` on
+  another thread (to a temporary file, then renamed). The file records how many journal entries
+  it holds (`nc:journal`), so a reader skips those, and the journal is removed.
+- A stroke rubbed out, moved or taken back changes what came before, so it is written the same
+  way, as a whole, in the background; it is on disk within a moment, not on the instant.
+- A page opens from the file and then the journal. An `ink.svg` that cannot be read is set aside
+  as `ink.unreadable.svg` and never written over.
+
+Drawing a page of thousands of strokes costs what is in view: the shapes of a finished stroke are
+made once and moved into place, and strokes off the screen are skipped. `cargo test --release -p
+notecraft-ink --test big_drawing -- --ignored --nocapture` measures the save.

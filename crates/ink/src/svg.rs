@@ -22,7 +22,7 @@ pub const NS: &str = "https://notecraft.org/ns/ink";
 
 /// How much of a file this will read, in bytes. A drawing is small; anything approaching
 /// this is a mistake or an attack, and is refused before it is parsed.
-pub const MAX_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_BYTES: usize = 64 * 1024 * 1024;
 
 /// Which of the two a file is written as.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -85,45 +85,76 @@ pub fn is_ink(text: &str) -> bool {
 
 /// The drawing as SVG.
 pub fn write(drawing: &Drawing, flavour: Flavour) -> String {
-    let mut out = String::with_capacity(1024);
+    write_folded(drawing, flavour, 0)
+}
+
+/// The drawing as SVG, recording that the first `folded` entries of the page's journal (see
+/// [`path_line`]) are already in it, so a reader knows which of them to skip.
+pub fn write_folded(drawing: &Drawing, flavour: Flavour, folded: usize) -> String {
+    let mut out = String::with_capacity(1024 + drawing.strokes.len() * 1024);
     out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     out.push_str("<svg xmlns=\"http://www.w3.org/2000/svg\"");
     if flavour == Flavour::Editable {
         out.push_str(&format!(" xmlns:nc=\"{NS}\""));
+        if folded > 0 {
+            out.push_str(&format!(" nc:journal=\"{folded}\""));
+        }
     }
     out.push_str(&format!(" width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\">\n", w = num(drawing.width), h = num(drawing.height)));
     out.push_str("  <title>Ink</title>\n");
     for stroke in &drawing.strokes {
-        let ring = shape::outline(stroke);
-        if ring.is_empty() {
-            continue;
+        if let Some(line) = path_line(stroke, flavour) {
+            out.push_str(&line);
         }
-        let mut d = String::with_capacity(ring.len() * 12);
-        for (i, (x, y)) in ring.iter().enumerate() {
-            d.push_str(if i == 0 { "M" } else { "L" });
-            d.push_str(&num(*x));
-            d.push(' ');
-            d.push_str(&num(*y));
-            d.push(' ');
-        }
-        d.push('Z');
-        out.push_str("  <path");
-        if flavour == Flavour::Editable {
-            out.push_str(&format!(" nc:tool=\"{}\" nc:width=\"{}\"", stroke.tool.id(), num(stroke.width)));
-            if (stroke.gain - 1.0).abs() > 0.001 {
-                out.push_str(&format!(" nc:gain=\"{}\"", num(stroke.gain)));
-            }
-            out.push_str(&format!(" nc:dabs=\"{}\"", dabs_text(&stroke.dabs)));
-        }
-        out.push_str(&format!(" fill=\"{}\"", stroke.colour.hex()));
-        let opacity = stroke.tool.opacity();
-        if opacity < 1.0 {
-            out.push_str(&format!(" fill-opacity=\"{}\"", num(opacity)));
-        }
-        out.push_str(&format!(" d=\"{}\"/>\n", d.trim_end()));
     }
     out.push_str("</svg>\n");
     out
+}
+
+/// One stroke as the line the file holds it in (`  <path .../>` and a newline), or `None` for a
+/// stroke with nothing to draw. The same line is what the page's journal appends when a stroke
+/// is finished, so saving one stroke costs one stroke and not the whole drawing.
+pub fn path_line(stroke: &Stroke, flavour: Flavour) -> Option<String> {
+    let ring = shape::outline(stroke);
+    if ring.is_empty() {
+        return None;
+    }
+    let mut d = String::with_capacity(ring.len() * 12);
+    for (i, (x, y)) in ring.iter().enumerate() {
+        d.push_str(if i == 0 { "M" } else { "L" });
+        d.push_str(&num(*x));
+        d.push(' ');
+        d.push_str(&num(*y));
+        d.push(' ');
+    }
+    d.push('Z');
+    let mut out = String::with_capacity(d.len() + 256);
+    out.push_str("  <path");
+    if flavour == Flavour::Editable {
+        out.push_str(&format!(" nc:tool=\"{}\" nc:width=\"{}\"", stroke.tool.id(), num(stroke.width)));
+        if (stroke.gain - 1.0).abs() > 0.001 {
+            out.push_str(&format!(" nc:gain=\"{}\"", num(stroke.gain)));
+        }
+        out.push_str(&format!(" nc:dabs=\"{}\"", dabs_text(&stroke.dabs)));
+    }
+    out.push_str(&format!(" fill=\"{}\"", stroke.colour.hex()));
+    let opacity = stroke.tool.opacity();
+    if opacity < 1.0 {
+        out.push_str(&format!(" fill-opacity=\"{}\"", num(opacity)));
+    }
+    out.push_str(&format!(" d=\"{}\"/>\n", d.trim_end()));
+    Some(out)
+}
+
+/// How many journal entries the file says it already holds (0 when it says nothing).
+pub fn folded(text: &str) -> usize {
+    find_tag(&text[..text.len().min(4096)], "<svg").and_then(|open| attr(open, "nc:journal")).and_then(|v| v.trim().parse().ok()).unwrap_or(0)
+}
+
+/// Strokes from journal lines (each a [`path_line`]), read the way the file's own are.
+pub fn read_lines(lines: &str) -> Vec<Stroke> {
+    let wrapped = format!("<svg xmlns:nc=\"{NS}\">\n{lines}</svg>");
+    read(&wrapped).map(|(drawing, _)| drawing.strokes).unwrap_or_default()
 }
 
 /// The readings as one attribute: `x,y,p x,y,p ...`.
@@ -392,5 +423,31 @@ mod tests {
         assert_eq!(flat, 0);
         assert!(back.is_empty());
         assert_eq!((back.width, back.height), (100.0, 80.0), "the sheet is the size it was");
+    }
+
+    #[test]
+    fn a_stroke_line_is_the_same_text_the_whole_file_holds_it_as() {
+        use crate::{Dab, Rgb, Stroke, Tool};
+        let mut stroke = Stroke::new(Tool::Pen, Rgb(0xd0, 0x21, 0x21), 4.0);
+        for i in 0..20 {
+            stroke.add(Dab::new(i as f32 * 3.0, (i as f32).sin() * 5.0, 0.5));
+        }
+        let mut drawing = crate::Drawing::new(100.0, 100.0);
+        drawing.add(stroke.clone());
+        let line = path_line(&stroke, Flavour::Editable).expect("a line");
+        assert!(write(&drawing, Flavour::Editable).contains(&line), "the file holds the stroke as exactly this line");
+        let back = read_lines(&line);
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0].dabs.len(), 20);
+    }
+
+    #[test]
+    fn a_file_says_how_much_of_the_journal_it_holds() {
+        let drawing = crate::Drawing::new(100.0, 100.0);
+        assert_eq!(folded(&write(&drawing, Flavour::Editable)), 0);
+        let text = write_folded(&drawing, Flavour::Editable, 37);
+        assert_eq!(folded(&text), 37);
+        assert!(is_ink(&text), "and it is still an ink file");
+        assert_eq!(folded(&write_folded(&drawing, Flavour::Plain, 37)), 0, "a picture carries no journal mark");
     }
 }
