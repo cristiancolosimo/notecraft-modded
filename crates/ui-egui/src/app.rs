@@ -562,6 +562,8 @@ pub struct NoteCraftApp {
     stylus: crate::stylus::Stylus,
     /// Only a pen writes ink (Android); a finger or a mouse does not.
     pen_only: bool,
+    /// A touch tablet: the keyboard switch shows, and the pen draws by default.
+    soft_keyboard_blocked: bool,
     /// Where the page's words were drawn last frame, which is where its ink goes.
     page_rect: Option<egui::Rect>,
     /// What the pointer does on the page (the Draw tab).
@@ -685,6 +687,7 @@ impl NoteCraftApp {
             ribbon_tab: "Home".to_string(),
             stylus: crate::stylus::Stylus::default(),
             pen_only: false,
+            soft_keyboard_blocked: false,
             page_rect: None,
             pointer: ribbon::Pointer::Write,
             rack,
@@ -1738,6 +1741,57 @@ impl NoteCraftApp {
     /// Lets only the pen write ink: a finger on the page does not draw. For touch screens.
     pub fn set_pen_only(&mut self, on: bool) {
         self.pen_only = on;
+        if on {
+            // On a tablet the pen writes on the note by default; Type brings the caret back.
+            if self.pointer == ribbon::Pointer::Write {
+                self.pointer = ribbon::Pointer::Draw;
+            }
+            self.soft_keyboard_blocked = self.session.settings.get("soft_keyboard_blocked").as_deref() == Some("true");
+        }
+    }
+
+    /// Whether the owner switched the on-screen keyboard off. The window layer reads this.
+    pub fn soft_keyboard_blocked(&self) -> bool {
+        self.pen_only && self.soft_keyboard_blocked
+    }
+
+    /// The switch in the header that keeps the on-screen keyboard from opening. Only on a tablet.
+    fn keyboard_switch(&mut self, ui: &mut Ui, tokens: Tokens) {
+        if !self.pen_only {
+            return;
+        }
+        let (rect, resp) = ui.allocate_exact_size(vec2(34.0, 24.0), Sense::click());
+        let painter = ui.painter_at(rect);
+        if resp.hovered() || self.soft_keyboard_blocked {
+            painter.rect_filled(rect, 4.0, tokens.row_hover);
+        }
+        let body = egui::Rect::from_center_size(rect.center(), vec2(22.0, 13.0));
+        let colour = if self.soft_keyboard_blocked { tokens.muted } else { tokens.text };
+        painter.rect_stroke(body, 2.0, egui::Stroke::new(1.3, colour), egui::StrokeKind::Inside);
+        for row in 0..2 {
+            for key in 0..5 {
+                let at = body.min + vec2(4.0 + key as f32 * 3.6, 3.6 + row as f32 * 3.4);
+                painter.circle_filled(at, 0.9, colour);
+            }
+        }
+        painter.line_segment([body.min + vec2(6.0, 10.5), body.min + vec2(16.0, 10.5)], egui::Stroke::new(1.3, colour));
+        if self.soft_keyboard_blocked {
+            painter.line_segment([rect.left_bottom() + vec2(4.0, -3.0), rect.right_top() + vec2(-4.0, 3.0)], egui::Stroke::new(2.0, tokens.accent));
+        }
+        let label = if self.soft_keyboard_blocked { "On-screen keyboard: off" } else { "On-screen keyboard: on" };
+        let (enabled, blocked) = (ui.is_enabled(), self.soft_keyboard_blocked);
+        resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, blocked, label));
+        if resp
+            .on_hover_text(if blocked {
+                "The on-screen keyboard is blocked. Click to allow it."
+            } else {
+                "Click to stop the on-screen keyboard from opening."
+            })
+            .clicked()
+        {
+            self.soft_keyboard_blocked = !self.soft_keyboard_blocked;
+            let _ = self.session.settings.set("soft_keyboard_blocked", if self.soft_keyboard_blocked { "true" } else { "false" });
+        }
     }
 
     pub fn set_frameless(&mut self, on: bool) {
@@ -1810,6 +1864,8 @@ impl NoteCraftApp {
         }
         right.add_space(4.0);
         self.theme_menu(&mut right, on);
+        right.add_space(6.0);
+        self.keyboard_switch(&mut right, on);
         right.add_space(10.0);
         let resp = right.add(egui::TextEdit::singleline(&mut self.search).hint_text("Search all pages").desired_width(200.0));
         if self.focus_search {
@@ -2433,7 +2489,14 @@ impl NoteCraftApp {
             .frame(egui::Frame::new().fill(tokens.panel).inner_margin(egui::Margin::symmetric(4, 0)))
             .show_separator_line(false)
             .show(ui, |ui| {
-                acts = ribbon::show(ui, &tab, source, &view, format, &tokens);
+                // A tablet's screen is narrower than the ribbon: the groups scroll sideways
+                // under a finger instead of running off the edge.
+                egui::ScrollArea::horizontal()
+                    .id_salt("ribbon-scroll")
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                    .show(ui, |ui| {
+                        acts = ribbon::show(ui, &tab, source, &view, format, &tokens);
+                    });
             });
         let picked = self.editor.as_ref().and_then(|e| crate::containers::selected(ui.ctx(), &e.dir));
         for a in acts {

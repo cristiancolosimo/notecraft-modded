@@ -29,8 +29,11 @@ notecraft-ui-egui = { workspace = true }
 eframe = { version = "0.36", default-features = false, features = ["android-native-activity", "default_fonts", "wgpu"] }
 egui = { workspace = true }
 log = { workspace = true }
+# The window layer (vendor/winit): the keyboard switch lives in its android module.
+winit = { version = "0.30", default-features = false, features = ["android-native-activity", "rwh_06"] }
 android-activity = { version = "0.6", features = ["native-activity"] }
 android_logger = "0.15"
+jni = "0.21"
 rfd_android = { package = "notecraft-rfd-android-stub", path = "../../vendor/rfd-android-stub" }
 
 # Built with `cargo xtask android` (cargo-apk underneath). The stylus is read through the

@@ -26,6 +26,13 @@ then has no force, `Stylus::pen_contact` is false, and `set_pen_only` makes the 
 it: only the pen draws. Check real readings with the pressure canvas before tuning the curve (see
 [ink-and-pressure.md](ink-and-pressure.md)).
 
+## Screen
+
+The window is laid out inside the system insets read through JNI (`WindowInsets`: status bar,
+navigation bar and keyboard), so no button sits under a bar. The ribbon scrolls sideways. A
+header switch keeps the on-screen keyboard from opening; it is remembered. The pen draws by
+default (Type brings the caret back), and a finger drag on a drawing page scrolls it.
+
 ## Export
 
 File, Export writes a notebook as a ZIP. There is no save dialog on Android yet, so the ZIP goes

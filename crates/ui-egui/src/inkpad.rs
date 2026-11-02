@@ -270,6 +270,10 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
     // put down and lifted in one place is a dot, and a dot is ink.
     // `ink_allowed` is false for a finger when only the pen may write.
     let down = ink_allowed && resp.is_pointer_button_down_on();
+    // A finger on the ink layer scrolls the page, as it would anywhere else.
+    if !ink_allowed && resp.dragged() {
+        ui.scroll_with_delta(resp.drag_delta());
+    }
     let at = ui.ctx().pointer_interact_pos().filter(|p| body.contains(*p)).map(|p| ((p.x - body.min.x) / zoom, (p.y - body.min.y) / zoom));
     let mut changed = false;
     match pen.pointer {

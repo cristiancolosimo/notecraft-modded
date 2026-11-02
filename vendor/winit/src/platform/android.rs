@@ -186,3 +186,9 @@ pub mod activity {
     #[doc(hidden)]
     pub struct AndroidApp;
 }
+
+/// NoteCraft: stops the window from opening the on-screen keyboard (a hardware keyboard and
+/// the pen are unaffected). While blocked, a text field being focused shows nothing.
+pub fn set_soft_keyboard_blocked(blocked: bool) {
+    crate::platform_impl::SOFT_KEYBOARD_BLOCKED.store(blocked, std::sync::atomic::Ordering::Relaxed);
+}

@@ -6,6 +6,9 @@
 //! stylus writes with its pressure. Upstream winit gives every contact a force, so vendor/winit
 //! sends one only for a stylus or eraser tool, and a finger never draws (`set_pen_only`).
 //!
+//! The window is laid out inside the system insets (status bar, navigation bar, keyboard), and
+//! a header switch keeps the on-screen keyboard from opening (vendor/winit).
+//!
 //! Gaps with a stand-in: the file pickers and the clipboard (vendor/*-android-stub).
 
 use android_activity::AndroidApp;
@@ -14,15 +17,60 @@ use notecraft_store::Settings;
 use notecraft_ui_egui::NoteCraftApp;
 use std::path::{Path, PathBuf};
 
-struct Shell(NoteCraftApp);
+struct Shell {
+    app: NoteCraftApp,
+    android: AndroidApp,
+}
+
+/// What the status bar, the navigation bar and the on-screen keyboard cover, in pixels
+/// (left, top, right, bottom), from the window's `WindowInsets` (Android 11 and later).
+fn system_insets_px(app: &AndroidApp) -> Option<[i32; 4]> {
+    use jni::JavaVM;
+    use jni::objects::{JObject, JValue};
+    // SAFETY: the pointers are the process's JavaVM and the running Activity, which
+    // android-activity keeps valid for as long as `app` lives.
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }.ok()?;
+    let activity = unsafe { JObject::from_raw(app.activity_as_ptr().cast()) };
+    let mut env = vm.attach_current_thread().ok()?;
+    let read = env.with_local_frame(16, |env| -> jni::errors::Result<[i32; 4]> {
+        let window = env.call_method(&activity, "getWindow", "()Landroid/view/Window;", &[])?.l()?;
+        let decor = env.call_method(&window, "getDecorView", "()Landroid/view/View;", &[])?.l()?;
+        let insets = env.call_method(&decor, "getRootWindowInsets", "()Landroid/view/WindowInsets;", &[])?.l()?;
+        if insets.is_null() {
+            return Err(jni::errors::Error::NullPtr("no insets yet"));
+        }
+        // 7 is Type.systemBars() (status, navigation, caption), 8 is Type.ime().
+        let both = env.call_method(&insets, "getInsets", "(I)Landroid/graphics/Insets;", &[JValue::Int(15)])?.l()?;
+        let mut side = |name: &str| env.get_field(&both, name, "I")?.i();
+        Ok([side("left")?, side("top")?, side("right")?, side("bottom")?])
+    });
+    if env.exception_check().unwrap_or(false) {
+        let _ = env.exception_clear();
+    }
+    read.ok()
+}
+
+impl Shell {
+    /// How much of the window the system covers, in points: the app is laid out inside what is
+    /// left, so no button sits under a bar and the keyboard does not hide the page.
+    fn insets(&self, ppp: f32) -> egui::Margin {
+        let Some([left, top, right, bottom]) = system_insets_px(&self.android) else { return egui::Margin::ZERO };
+        let points = |px: i32| (px.max(0) as f32 / ppp).round().min(400.0) as i8;
+        egui::Margin { left: points(left), top: points(top), right: points(right), bottom: points(bottom) }
+    }
+}
 
 impl eframe::App for Shell {
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
-        raw_input.events.extend(self.0.take_events());
+        raw_input.events.extend(self.app.take_events());
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.0.show(ui);
+        winit::platform::android::set_soft_keyboard_blocked(self.app.soft_keyboard_blocked());
+        let margin = self.insets(ui.ctx().pixels_per_point());
+        let rect = ui.max_rect() - margin;
+        let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+        self.app.show(&mut inner);
     }
 }
 
@@ -58,9 +106,20 @@ fn android_main(app: AndroidApp) {
         Ok(board) => board,
         Err(_) => Box::new(notecraft_ui_egui::clipboard::Unavailable),
     };
-    let options = eframe::NativeOptions { android_app: Some(app), ..Default::default() };
-    let result =
-        eframe::run_native("NoteCraft", options, Box::new(move |_cc| Ok(Box::new(Shell(NoteCraftApp::new(session).with_clipboard(clipboard))))));
+    let app_handle = app.clone();
+    let options = eframe::NativeOptions { android_app: Some(app.clone()), ..Default::default() };
+    let result = eframe::run_native(
+        "NoteCraft",
+        options,
+        Box::new(move |_cc| {
+            let mut app = NoteCraftApp::new(session).with_clipboard(clipboard);
+            // The system draws the status bar; the desktop app's own title band has no place here.
+            app.set_frameless(false);
+            // A finger scrolls and taps; only the stylus draws, and it draws by default.
+            app.set_pen_only(true);
+            Ok(Box::new(Shell { app, android: app_handle }))
+        }),
+    );
     if let Err(e) = result {
         log::error!("the window failed: {e}");
     }

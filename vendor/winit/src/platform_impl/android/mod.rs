@@ -108,6 +108,8 @@ impl SharedFlag {
     }
 }
 
+pub(crate) static SOFT_KEYBOARD_BLOCKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[derive(Clone)]
 pub struct RedrawRequester {
     flag: SharedFlagSetter,
@@ -923,7 +925,8 @@ impl Window {
     pub fn set_ime_cursor_area(&self, _position: Position, _size: Size) {}
 
     pub fn set_ime_allowed(&self, allowed: bool) {
-        if allowed {
+        // NoteCraft: the owner can switch the on-screen keyboard off (see platform/android.rs).
+        if allowed && !SOFT_KEYBOARD_BLOCKED.load(std::sync::atomic::Ordering::Relaxed) {
             self.app.show_soft_input(true);
         } else {
             self.app.hide_soft_input(true);
