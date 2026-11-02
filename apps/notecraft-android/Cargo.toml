@@ -73,6 +73,11 @@ name = "android.permission.READ_MEDIA_IMAGES"
 name = "android.permission.READ_EXTERNAL_STORAGE"
 max_sdk_version = 32
 
+# The app's own file chooser lists the device's files; from Android 11 that is "All files access", which the
+# owner gives in the system's settings for the app.
+[[package.metadata.android.uses_permission]]
+name = "android.permission.MANAGE_EXTERNAL_STORAGE"
+
 [[package.metadata.android.uses_feature]]
 name = "android.hardware.touchscreen"
 required = true

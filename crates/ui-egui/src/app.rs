@@ -389,7 +389,24 @@ enum FileChoice {
     Printout,
 }
 
+/// What a file chosen in the app's own chooser is for, since the chooser answers a frame later than the
+/// button that opened it.
+#[derive(Clone)]
+enum Purpose {
+    NotebooksFolder,
+    ImportFolder,
+    ImportFile,
+    Printout(PathBuf),
+    /// A file to put on this page's folder, which then asks what to do with it.
+    AttachFile(PathBuf),
+}
+
 enum Dialog {
+    /// The app's own file chooser, where the system has no file dialog (Android).
+    Browse {
+        purpose: Purpose,
+        browser: crate::filebrowser::Browser,
+    },
     /// A dropped file: copy it in, or link to it where it is.
     FileOptions {
         dir: PathBuf,
@@ -569,6 +586,8 @@ pub struct NoteCraftApp {
     pen_only: bool,
     /// What the platform lets the app read of the user's pictures, where there is no file dialog.
     media: Option<std::sync::Arc<dyn crate::mediapicker::MediaAccess>>,
+    /// The platform's way to read the device's files, where there is no file dialog: the app draws its own.
+    files: Option<std::sync::Arc<dyn crate::filebrowser::FilesAccess>>,
     /// The performance counter at the top right (File, Options).
     show_perf: bool,
     perf: crate::perf::Perf,
@@ -708,6 +727,7 @@ impl NoteCraftApp {
             sync: crate::syncing::Syncing::load(&settings_for_sync),
             pen_only: false,
             media: None,
+            files: None,
             show_perf: settings_for_sync.get("show_perf").as_deref() == Some("true"),
             perf: crate::perf::Perf::default(),
             fps_limit: settings_for_sync.get("fps_limit").and_then(|v| v.parse().ok()).filter(|n| crate::perf::FPS_LIMITS.contains(n)).unwrap_or(0),
@@ -1797,6 +1817,39 @@ impl NoteCraftApp {
     /// Lets only the pen write ink: a finger on the page does not draw. For touch screens.
     /// Gives the app the platform's way to read pictures; from then on Insert, Picture opens the
     /// app's own list instead of a system file dialog.
+    pub fn set_files_access(&mut self, access: std::sync::Arc<dyn crate::filebrowser::FilesAccess>) {
+        self.files = Some(access);
+    }
+
+    /// Asks for a file or a folder. With the system's dialog the answer is here and now; with the app's own
+    /// chooser (no system dialog) it opens and the answer comes later, to [`App::finish_pick`], so this gives `None`.
+    fn pick(&mut self, purpose: Purpose, title: &str, folder: bool, extensions: &[&str], start: Option<PathBuf>) -> Option<PathBuf> {
+        if let Some(access) = self.files.clone() {
+            let start = start.filter(|p| p.is_dir()).unwrap_or_else(|| access.root());
+            self.dialog = Some(Dialog::Browse { purpose, browser: crate::filebrowser::Browser::new(title, start, folder, extensions) });
+            return None;
+        }
+        let mut dialog = rfd::FileDialog::new().set_title(title);
+        if !extensions.is_empty() {
+            dialog = dialog.add_filter("Files", extensions);
+        }
+        if let Some(start) = start {
+            dialog = dialog.set_directory(start);
+        }
+        if folder { dialog.pick_folder() } else { dialog.pick_file() }
+    }
+
+    /// What is done with a path the app's own chooser gave.
+    fn finish_pick(&mut self, purpose: Purpose, path: PathBuf) {
+        match purpose {
+            Purpose::NotebooksFolder => self.open_notebooks_at(path),
+            Purpose::ImportFolder => self.import_officeimo_source(path, true),
+            Purpose::ImportFile => self.import_officeimo_source(path, false),
+            Purpose::Printout(dir) => self.add_file(&dir, &path, FileChoice::Printout),
+            Purpose::AttachFile(dir) => self.dialog = Some(Dialog::FileOptions { dir, files: vec![path] }),
+        }
+    }
+
     pub fn set_media_access(&mut self, access: std::sync::Arc<dyn crate::mediapicker::MediaAccess>) {
         self.media = Some(access);
     }
@@ -2221,11 +2274,13 @@ impl NoteCraftApp {
     /// is already open. A folder that is itself a notebook opens as one; a folder that
     /// holds notebooks opens all of them. Nothing is closed and nothing is moved.
     fn choose_notebooks_folder(&mut self) {
-        let Some(picked) =
-            rfd::FileDialog::new().set_title("Choose a notebook, a folder of notebooks, or an empty folder for a new notebook").pick_folder()
-        else {
-            return;
-        };
+        let title = "Choose a notebook, a folder of notebooks, or an empty folder for a new notebook";
+        if let Some(picked) = self.pick(Purpose::NotebooksFolder, title, true, &[], None) {
+            self.open_notebooks_at(picked);
+        }
+    }
+
+    fn open_notebooks_at(&mut self, picked: PathBuf) {
         let is_notebook = notecraft_store::tree::read_node(&picked).is_some_and(|i| i.kind == NodeKind::Notebook);
         let wanted: Vec<std::path::PathBuf> =
             if is_notebook { vec![picked.clone()] } else { notecraft_store::tree::load_notebooks(&picked).into_iter().map(|n| n.path).collect() };
@@ -2262,21 +2317,17 @@ impl NoteCraftApp {
     }
 
     fn import_notebook_folder(&mut self) {
-        let mut dialog = rfd::FileDialog::new().set_title("Choose a OneNote notebook folder");
-        if let Some(backup) = notecraft_import::discover::default_source() {
-            dialog = dialog.set_directory(backup);
+        let start = notecraft_import::discover::default_source();
+        if let Some(source) = self.pick(Purpose::ImportFolder, "Choose a OneNote notebook folder", true, &[], start) {
+            self.import_officeimo_source(source, true);
         }
-        let Some(source) = dialog.pick_folder() else { return };
-        self.import_officeimo_source(source, true);
     }
 
     fn import_file(&mut self) {
-        let mut dialog = rfd::FileDialog::new().set_title("Choose a file to import");
-        if let Some(backup) = notecraft_import::discover::default_source() {
-            dialog = dialog.set_directory(backup);
+        let start = notecraft_import::discover::default_source();
+        if let Some(source) = self.pick(Purpose::ImportFile, "Choose a file to import", false, &["one"], start) {
+            self.import_officeimo_source(source, false);
         }
-        let Some(source) = dialog.pick_file() else { return };
-        self.import_officeimo_source(source, false);
     }
 
     fn import_officeimo_source(&mut self, source: PathBuf, folder: bool) {
@@ -2748,10 +2799,9 @@ impl NoteCraftApp {
                     self.say("Open a page first");
                     return;
                 };
-                let picker = rfd::FileDialog::new()
-                    .set_title("Choose a PDF or Office document to print out")
-                    .add_filter("PDF and Office documents", &["pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "odt", "odp", "ods", "rtf"]);
-                if let Some(file) = picker.pick_file() {
+                let kinds = ["pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "odt", "odp", "ods", "rtf"];
+                let title = "Choose a PDF or Office document to print out";
+                if let Some(file) = self.pick(Purpose::Printout(dir.clone()), title, false, &kinds, None) {
                     self.add_file(&dir, &file, FileChoice::Printout);
                 }
             }
@@ -2760,19 +2810,14 @@ impl NoteCraftApp {
                     self.say("Open a page first");
                     return;
                 };
-                if self.media.is_some() {
+                if self.media.is_some() && (matches!(act, ribbon::Act::AddPicture) || self.files.is_none()) {
                     self.dialog = Some(Dialog::PickMedia { dir, picker: crate::mediapicker::Picker::new(matches!(act, ribbon::Act::AddPicture)) });
                     return;
                 }
-                let mut picker = rfd::FileDialog::new().set_title(if matches!(act, ribbon::Act::AddPicture) {
-                    "Choose a picture"
-                } else {
-                    "Choose a file to attach"
-                });
-                if matches!(act, ribbon::Act::AddPicture) {
-                    picker = picker.add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"]);
-                }
-                if let Some(file) = picker.pick_file() {
+                let picture = matches!(act, ribbon::Act::AddPicture);
+                let title = if picture { "Choose a picture" } else { "Choose a file to attach" };
+                let kinds: &[&str] = if picture { &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"] } else { &[] };
+                if let Some(file) = self.pick(Purpose::AttachFile(dir.clone()), title, false, kinds, None) {
                     self.dialog = Some(Dialog::FileOptions { dir, files: vec![file] });
                 }
             }
@@ -4599,7 +4644,7 @@ impl NoteCraftApp {
                 }
                 crate::codeview::FileAction::AddFile => {
                     if let Some(dir) = self.editor.as_ref().map(|ed| ed.dir.clone())
-                        && let Some(file) = rfd::FileDialog::new().set_title("Add file to this page").pick_file()
+                        && let Some(file) = self.pick(Purpose::AttachFile(dir.clone()), "Add file to this page", false, &[], None)
                     {
                         self.dialog = Some(Dialog::FileOptions { dir, files: vec![file] });
                     }
@@ -4703,6 +4748,7 @@ impl NoteCraftApp {
             return;
         }
         let mut keep = true;
+        let mut chosen_path: Option<(Purpose, PathBuf)> = None;
         let mut next = dialog;
         match &mut next {
             Dialog::ClearTelemetry { path } => {
@@ -5028,6 +5074,20 @@ impl NoteCraftApp {
                     keep = false;
                 } else {
                     self.open_attachment_warning_suppressed = suppress;
+                }
+            }
+            Dialog::Browse { purpose, browser } => {
+                if let Some(access) = self.files.clone() {
+                    match browser.show(ctx, &access, &self.tokens, self.dialog_lift) {
+                        crate::filebrowser::Outcome::Open => {}
+                        crate::filebrowser::Outcome::Cancel => keep = false,
+                        crate::filebrowser::Outcome::Chosen(path) => {
+                            keep = false;
+                            chosen_path = Some((purpose.clone(), path));
+                        }
+                    }
+                } else {
+                    keep = false;
                 }
             }
             Dialog::PickMedia { dir, picker } => {
@@ -5574,6 +5634,9 @@ impl NoteCraftApp {
         }
         if keep {
             self.dialog = Some(next);
+        }
+        if let Some((purpose, path)) = chosen_path {
+            self.finish_pick(purpose, path);
         }
     }
 

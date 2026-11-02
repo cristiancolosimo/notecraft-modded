@@ -17,6 +17,66 @@ use notecraft_store::Settings;
 use notecraft_ui_egui::NoteCraftApp;
 use std::path::{Path, PathBuf};
 
+/// Reading the device's files for the app's own file chooser: "All files access", which the owner gives in
+/// the system's settings page for the app (there is no dialog for it).
+struct Files {
+    app: AndroidApp,
+}
+
+impl notecraft_ui_egui::filebrowser::FilesAccess for Files {
+    fn granted(&self) -> bool {
+        use jni::JavaVM;
+        // SAFETY: the process's JavaVM, valid while `app` lives.
+        let Ok(vm) = (unsafe { JavaVM::from_raw(self.app.vm_as_ptr().cast()) }) else { return false };
+        let Ok(mut env) = vm.attach_current_thread() else { return false };
+        // Environment.isExternalStorageManager(), Android 11 and later; before it, the permission to read storage.
+        let manager = env.call_static_method("android/os/Environment", "isExternalStorageManager", "()Z", &[]).and_then(|v| v.z());
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_clear();
+        }
+        match manager {
+            Ok(granted) => granted,
+            Err(_) => Pictures { app: self.app.clone() }.check("android.permission.READ_EXTERNAL_STORAGE"),
+        }
+    }
+
+    fn request(&self) {
+        use jni::JavaVM;
+        use jni::objects::{JObject, JValue};
+        // SAFETY: as above, with the running Activity.
+        let Ok(vm) = (unsafe { JavaVM::from_raw(self.app.vm_as_ptr().cast()) }) else { return };
+        let activity = unsafe { JObject::from_raw(self.app.activity_as_ptr().cast()) };
+        let Ok(mut env) = vm.attach_current_thread() else { return };
+        let _ = env.with_local_frame(16, |env| -> jni::errors::Result<()> {
+            // Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, for this app's own package.
+            let action = env.new_string("android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION")?;
+            let package = self.package(env, &activity)?;
+            let uri_text = env.new_string(format!("package:{package}"))?;
+            let uri =
+                env.call_static_method("android/net/Uri", "parse", "(Ljava/lang/String;)Landroid/net/Uri;", &[JValue::Object(&uri_text)])?.l()?;
+            let intent =
+                env.new_object("android/content/Intent", "(Ljava/lang/String;Landroid/net/Uri;)V", &[JValue::Object(&action), JValue::Object(&uri)])?;
+            env.call_method(&activity, "startActivity", "(Landroid/content/Intent;)V", &[JValue::Object(&intent)])?;
+            Ok(())
+        });
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_clear();
+        }
+    }
+
+    fn root(&self) -> PathBuf {
+        PathBuf::from("/storage/emulated/0")
+    }
+}
+
+impl Files {
+    fn package(&self, env: &mut jni::JNIEnv, activity: &jni::objects::JObject) -> jni::errors::Result<String> {
+        let name = env.call_method(activity, "getPackageName", "()Ljava/lang/String;", &[])?.l()?;
+        let name: jni::objects::JString = name.into();
+        Ok(env.get_string(&name)?.into())
+    }
+}
+
 struct Shell {
     app: NoteCraftApp,
     android: AndroidApp,
@@ -242,6 +302,8 @@ fn android_main(app: AndroidApp) {
             app.set_pen_only(true);
             // No file dialog here: Insert, Picture opens the app's own list of the device's pictures.
             app.set_media_access(std::sync::Arc::new(Pictures { app: app_handle.clone() }));
+            // And for any other file (attachments, imports, a notebooks folder): the app's own file chooser.
+            app.set_files_access(std::sync::Arc::new(Files { app: app_handle.clone() }));
             Ok(Box::new(Shell { app, android: app_handle }))
         }),
     );
