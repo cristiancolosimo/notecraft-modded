@@ -63,7 +63,9 @@ fn clamp(v: Vec2) -> Vec2 {
 /// the up and down of a finger.
 pub fn step(ctx: &Context, id: Id, drag: Option<Vec2>, axes: Vec2) -> Vec2 {
     let mut fling: Fling = ctx.data(|d| d.get_temp(id)).unwrap_or_default();
-    let (dt, pressed, speed) = ctx.input(|i| (i.stable_dt.min(0.05), i.pointer.any_pressed(), i.pointer.velocity()));
+    // The time the frame really took, not the smoothed estimate: the page has to move by the speed
+    // times the time that went by, or it speeds up and slows down with the frame rate.
+    let (dt, pressed, speed) = ctx.input(|i| (i.unstable_dt.clamp(0.0, 0.1), i.pointer.any_pressed(), i.pointer.velocity()));
     let moved = match drag {
         Some(delta) => {
             fling.drag(speed * axes);

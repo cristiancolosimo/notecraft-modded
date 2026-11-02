@@ -439,8 +439,13 @@ fn scrolling_ribbon(ui: &mut Ui, id_salt: impl std::hash::Hash + std::fmt::Debug
         // the drag that moves the ribbon is the one above, which a control has not taken.
         .scroll_source(egui::scroll_area::ScrollSource { drag: egui::scroll_area::DragScroll::Never, ..egui::scroll_area::ScrollSource::default() })
         .show(ui, |ui| {
-            if drag != 0.0 || step != 0.0 {
-                ui.scroll_with_delta(vec2(drag - step, 0.0));
+            // One call a frame decides the animation. Frame by frame a drag moves instantly: egui's
+            // default would start a new easing every frame, and the overlapping easings make the
+            // motion uneven. Only a press of an arrow is eased.
+            if step != 0.0 {
+                ui.scroll_with_delta_animation(vec2(drag - step, 0.0), egui::style::ScrollAnimation::duration(0.2));
+            } else if drag != 0.0 {
+                ui.scroll_with_delta_animation(vec2(drag, 0.0), egui::style::ScrollAnimation::none());
             }
             add(ui);
         });

@@ -4762,6 +4762,30 @@ fn full_page_view_swaps_the_ribbon_for_a_quick_draw_bar() {
     assert!(h.query_all_by_label("Clipboard").count() >= 1 || h.query_all_by_label("Undo").count() >= 1, "and the ribbon returns");
 }
 
+/// The performance counter is off until it is turned on in File, Options, and the choice is kept.
+#[test]
+fn the_performance_counter_is_switched_in_options_and_remembered() {
+    let (t, app, s) = sample_app("ui-perf-switch");
+    let settings = t.path().join("settings.toml");
+    let mut app = app;
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = sized_harness(app, LIGHT, egui::vec2(1400.0, 800.0));
+    settle(&mut h);
+    assert!(!std::fs::read_to_string(&settings).unwrap_or_default().contains("show_perf = \"true\""), "off to begin with");
+    h.get_by_label("File").click();
+    settle(&mut h);
+    h.get_by_label("Options").click();
+    settle(&mut h);
+    h.get_by_label("Show the performance counter").click();
+    settle(&mut h);
+    let saved = std::fs::read_to_string(&settings).unwrap_or_default();
+    assert!(saved.contains("show_perf") && saved.contains("true"), "the choice is written: {saved}");
+    h.get_by_label("Show the performance counter").click();
+    settle(&mut h);
+    let saved = std::fs::read_to_string(&settings).unwrap_or_default();
+    assert!(saved.contains("show_perf = \"false\""), "and the choice to turn it off: {saved}");
+}
+
 /// A ribbon wider than the window scrolls: an arrow shows that more is beyond the edge, and
 /// pressing it brings the last group into view.
 #[test]

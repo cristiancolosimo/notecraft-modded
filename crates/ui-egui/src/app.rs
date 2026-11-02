@@ -562,6 +562,9 @@ pub struct NoteCraftApp {
     stylus: crate::stylus::Stylus,
     /// Only a pen writes ink (Android); a finger or a mouse does not.
     pen_only: bool,
+    /// The performance counter at the top right (File, Options).
+    show_perf: bool,
+    perf: crate::perf::Perf,
     /// Git sync: its form, its timer and what it last did.
     sync: crate::syncing::Syncing,
     /// A touch tablet: the keyboard switch shows, and the pen draws by default.
@@ -691,6 +694,8 @@ impl NoteCraftApp {
             stylus: crate::stylus::Stylus::default(),
             sync: crate::syncing::Syncing::load(&settings_for_sync),
             pen_only: false,
+            show_perf: settings_for_sync.get("show_perf").as_deref() == Some("true"),
+            perf: crate::perf::Perf::default(),
             soft_keyboard_blocked: false,
             page_rect: None,
             pointer: ribbon::Pointer::Write,
@@ -2015,6 +2020,7 @@ impl NoteCraftApp {
                 &telemetry_level,
                 session_id.as_deref(),
                 &mut self.sync,
+                self.show_perf,
                 &tokens,
             );
         });
@@ -2082,6 +2088,10 @@ impl NoteCraftApp {
                         self.sync.failed = true;
                     }
                 },
+                backstage::Act::SetShowPerf(on) => {
+                    self.show_perf = on;
+                    let _ = self.session.settings.set("show_perf", if on { "true" } else { "false" });
+                }
                 backstage::Act::ExportNotebook(path) => {
                     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "notebook".into());
                     if let Some(destination) =
@@ -5847,6 +5857,15 @@ impl NoteCraftApp {
     }
     /// Draws the whole window. Call once per frame.
     pub fn show(&mut self, ui: &mut Ui) {
+        let area = ui.max_rect();
+        self.show_window(ui);
+        if self.show_perf {
+            let page = self.pad.as_ref().map(|p| format!("ink {} strokes", p.strokes())).unwrap_or_default();
+            self.perf.show(ui.ctx(), area, &page);
+        }
+    }
+
+    fn show_window(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         let ctx = &ctx;
         if !self.loaders_installed {
@@ -5877,6 +5896,9 @@ impl NoteCraftApp {
         self.poll_control(ctx);
         self.poll_import(ctx);
         self.poll_sync(ctx);
+        if self.show_perf {
+            self.perf.frame(web_time::Instant::now());
+        }
         if !self.event_frames.is_empty() {
             ctx.request_repaint();
         }

@@ -307,7 +307,7 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
         let drag = (!ink_allowed && resp.dragged()).then(|| resp.drag_delta());
         let moved = crate::kinetic::step(ui.ctx(), ui.id().with("ink-fling"), drag, crate::kinetic::both());
         if moved != egui::Vec2::ZERO {
-            ui.scroll_with_delta(moved);
+            ui.scroll_with_delta_animation(moved, egui::style::ScrollAnimation::none());
         }
     }
     let at = ui.ctx().pointer_interact_pos().filter(|p| body.contains(*p)).map(|p| ((p.x - body.min.x) / zoom, (p.y - body.min.y) / zoom));

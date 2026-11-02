@@ -46,6 +46,14 @@ A finger drag on a drawing page or on the ribbon keeps coasting after the finger
 to a stop (`kinetic.rs`); a touch of the glass catches it. The lists beside the page use egui's
 own touch scrolling. In Type mode a finger drag over text selects it, as before.
 
+## Performance counter
+
+File, Options, "Show the performance counter" puts a small readout at the top right: frames a
+second, the time between frames (mean and worst, rests left out), the process's processor and
+memory use and thread count (from `/proc`, so Linux and Android only), the window size and scale,
+and the page's ink. It takes no touches, is off by default and is remembered. Use it to see
+whether a stutter is a slow frame (a low fps and a high worst time) or something else.
+
 ## Endless page
 
 A page scrolls both ways and has no end down or to the right. It is as wide as its column until
