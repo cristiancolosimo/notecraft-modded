@@ -98,6 +98,36 @@ pub fn remove(drawing: &mut Drawing, held: &[usize]) -> usize {
     going.len()
 }
 
+/// Copies of the strokes at these places, in the order they lie in the drawing. This is what Copy
+/// and Cut keep, and what Duplicate lays down again.
+pub fn copy(drawing: &Drawing, held: &[usize]) -> Vec<Stroke> {
+    let mut at: Vec<usize> = held.iter().copied().filter(|i| *i < drawing.strokes.len()).collect();
+    at.sort_unstable();
+    at.dedup();
+    at.into_iter().map(|i| drawing.strokes[i].clone()).collect()
+}
+
+/// Lays copies on top of the drawing, so that the box round them has its top left corner at (`x`, `y`),
+/// and gives back where they went (fewer than were given if the sheet filled up).
+pub fn paste(drawing: &mut Drawing, strokes: &[Stroke], x: f32, y: f32) -> Vec<usize> {
+    let Some((x0, y0, ..)) = strokes.iter().filter_map(Stroke::bounds).reduce(|a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3))) else {
+        return Vec::new();
+    };
+    if !x.is_finite() || !y.is_finite() {
+        return Vec::new();
+    }
+    let first = drawing.strokes.len();
+    for s in strokes {
+        let mut s = s.clone();
+        for d in &mut s.dabs {
+            d.x += x - x0;
+            d.y += y - y0;
+        }
+        drawing.add(s);
+    }
+    (first..drawing.strokes.len()).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,5 +243,20 @@ mod tests {
         assert_eq!(remove(&mut d, &[0, 0, 7]), 1);
         assert!(d.strokes.is_empty());
         assert_eq!(remove(&mut d, &[3]), 0);
+    }
+
+    #[test]
+    fn copies_are_laid_down_where_asked_and_the_original_stays() {
+        let mut d = Drawing::new(100.0, 100.0);
+        d.add(line(10.0, 20.0, 10.0));
+        d.add(line(10.0, 20.0, 30.0));
+        let kept = copy(&d, &[1, 1, 0, 9]);
+        assert_eq!(kept.len(), 2, "doubles and strangers are left out");
+        let put = paste(&mut d, &kept, 50.0, 60.0);
+        assert_eq!(put, vec![2, 3]);
+        let (x0, y0, ..) = bounds(&d, &put).unwrap();
+        assert!((x0 - 50.0).abs() < 0.01 && (y0 - 60.0).abs() < 0.01, "the box starts where it was put: {x0},{y0}");
+        assert_eq!(d.strokes.len(), 4);
+        assert!(paste(&mut d, &[], 0.0, 0.0).is_empty());
     }
 }

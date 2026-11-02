@@ -323,8 +323,8 @@ it is fixed and tested, not when it is promised.
   Built: the Draw tab; five nibs (pen, pencil, fountain pen, brush pen, highlighter); a
   rack the owner arranges, with Add, a right-click menu, a Modify Tool editor for colour
   and thickness, and the whole rack remembered between runs; a pressure sensitivity wedge;
-  an eraser; undo; Save picture; picking ink up with Select or a lasso to move, stretch
-  or delete it; and ten regular shapes - line, arrow, rectangle, rounded rectangle, square,
+  an eraser; undo; Save picture; picking ink up with Select or a lasso to move, stretch,
+  duplicate, cut, copy, paste or delete it (a strip over what is held, or Ctrl+D, X, C, V, A); and ten regular shapes - line, arrow, rectangle, rounded rectangle, square,
   ellipse, circle, diamond, triangle and star - drawn by dragging out the two corners they
   sit between. A drawn shape is ink like any other stroke, so the eraser, Select and Undo
   Stroke all work on it; it is not kept as a shape that can be turned back into a perfect

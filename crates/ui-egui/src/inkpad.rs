@@ -549,6 +549,50 @@ impl Pad {
         self.dirty |= went;
         went
     }
+
+    /// Copies of what is held, for the clipboard.
+    pub fn copy_held(&self) -> Vec<Stroke> {
+        pick::copy(&self.drawing, &self.held)
+    }
+
+    /// Takes what is held out of the page and hands it back for the clipboard.
+    pub fn cut_held(&mut self) -> Vec<Stroke> {
+        let kept = self.copy_held();
+        self.delete_held();
+        kept
+    }
+
+    /// Lays `strokes` down with their box's top left corner at (`x`, `y`), and holds them, so they can
+    /// be moved at once. Says whether anything went down.
+    pub fn put(&mut self, strokes: &[Stroke], x: f32, y: f32) -> bool {
+        let at = pick::paste(&mut self.drawing, strokes, x, y);
+        self.grabbed = None;
+        self.dirty |= !at.is_empty();
+        self.held = at;
+        !self.held.is_empty()
+    }
+
+    /// Lays a copy of what is held just beside it, and holds the copy.
+    pub fn duplicate_held(&mut self) -> bool {
+        let (Some((x0, y0, ..)), copy) = (pick::bounds(&self.drawing, &self.held), self.copy_held()) else {
+            return false;
+        };
+        self.put(&copy, x0 + DUPLICATE_STEP, y0 + DUPLICATE_STEP)
+    }
+
+    /// Holds every stroke on the page.
+    pub fn select_all(&mut self) {
+        self.grabbed = None;
+        self.held = (0..self.drawing.strokes.len()).collect();
+    }
+}
+
+/// How far a duplicate is laid from the ink it copies, in points, so it can be told apart.
+const DUPLICATE_STEP: f32 = 18.0;
+
+/// What Copy and Cut keep, which is shared by every page so ink can be carried to another one.
+fn clipboard_id() -> egui::Id {
+    egui::Id::new("ink-clipboard")
 }
 
 /// How near a corner of the box the pointer has to be to take hold of it.
@@ -814,7 +858,95 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
     if !pad.held.is_empty() && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
         changed |= pad.delete_held();
     }
+    changed |= actions(ui, body, pad, pen.pointer, zoom);
     pad.dirty |= changed;
+    changed
+}
+
+/// The strip of actions over held ink (and Paste, when something has been copied): the same things the
+/// keyboard does, for a tablet that has none. Returns true when the ink changed.
+fn actions(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pointer: crate::ribbon::Pointer, zoom: f32) -> bool {
+    use crate::ribbon::Pointer;
+    if !matches!(pointer, Pointer::Lasso | Pointer::Pick) {
+        return false;
+    }
+    let ctx = ui.ctx().clone();
+    let clip: Vec<Stroke> = ctx.data(|d| d.get_temp(clipboard_id())).unwrap_or_default();
+    let mut changed = false;
+    // The keyboard: Ctrl or Command with C, X, V, D and A, so a desktop with a pen is as quick.
+    let (copy, cut, paste, dup, all) = ctx.input_mut(|i| {
+        let m = egui::Modifiers::COMMAND;
+        (
+            i.consume_key(m, egui::Key::C),
+            i.consume_key(m, egui::Key::X),
+            i.consume_key(m, egui::Key::V),
+            i.consume_key(m, egui::Key::D),
+            i.consume_key(m, egui::Key::A),
+        )
+    });
+    let held = !pad.held.is_empty();
+    let seen = body.intersect(ui.clip_rect());
+    let view_top_left = ((seen.min.x - body.min.x) / zoom + 24.0, (seen.min.y - body.min.y) / zoom + 24.0);
+    let mut action = None;
+    if all {
+        action = Some("all");
+    } else if held && copy {
+        action = Some("copy");
+    } else if held && cut {
+        action = Some("cut");
+    } else if held && dup {
+        action = Some("dup");
+    } else if !clip.is_empty() && paste {
+        action = Some("paste");
+    }
+    // While the ink is being moved or a loop drawn, the strip stays out of the way.
+    if pad.grabbed.is_none() && pad.loop_now.is_empty() && (held || !clip.is_empty() || !pad.drawing.strokes.is_empty()) {
+        let anchor = pick::bounds(&pad.drawing, &pad.held)
+            .map(|(x0, y0, x1, _)| egui::pos2(body.min.x + (x0 + x1) / 2.0 * zoom, body.min.y + y0 * zoom - 16.0))
+            .unwrap_or(egui::pos2(seen.center().x, seen.min.y + 28.0));
+        let anchor = egui::pos2(
+            anchor.x.clamp(seen.min.x + 120.0, (seen.max.x - 120.0).max(seen.min.x + 120.0)),
+            anchor.y.clamp(seen.min.y + 26.0, seen.max.y - 26.0),
+        );
+        egui::Area::new(ui.id().with("ink-actions")).order(egui::Order::Foreground).pivot(egui::Align2::CENTER_BOTTOM).fixed_pos(anchor).show(
+            &ctx,
+            |ui| {
+                egui::Frame::popup(ui.style()).inner_margin(4.0).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if held {
+                            for (name, id) in [("Duplicate", "dup"), ("Cut", "cut"), ("Copy", "copy"), ("Delete", "delete")] {
+                                if ui.button(name).clicked() {
+                                    action = Some(id);
+                                }
+                            }
+                        }
+                        if !clip.is_empty() && ui.button("Paste").clicked() {
+                            action = Some("paste");
+                        }
+                        if !held && ui.button("Select all").clicked() {
+                            action = Some("all");
+                        }
+                    });
+                });
+            },
+        );
+    }
+    match action {
+        Some("copy") => {
+            let kept = pad.copy_held();
+            ctx.data_mut(|d| d.insert_temp(clipboard_id(), kept));
+        }
+        Some("cut") => {
+            let kept = pad.cut_held();
+            ctx.data_mut(|d| d.insert_temp(clipboard_id(), kept));
+            changed = true;
+        }
+        Some("delete") => changed |= pad.delete_held(),
+        Some("dup") => changed |= pad.duplicate_held(),
+        Some("paste") => changed |= pad.put(&clip, view_top_left.0, view_top_left.1),
+        Some("all") => pad.select_all(),
+        _ => {}
+    }
     changed
 }
 
@@ -897,6 +1029,28 @@ mod tests {
         s.dabs.push(Dab::new(x, 40.0, 0.3));
         s.dabs.push(Dab::new(x + 30.0, 40.0, 1.0));
         s
+    }
+
+    #[test]
+    fn held_ink_can_be_duplicated_cut_and_put_back_on_another_page() {
+        let mut pad = Pad::of_page(TempDir::new("ink-held-a").path());
+        pad.drawing.add(stroke(10.0));
+        pad.drawing.add(stroke(100.0));
+        pad.select_all();
+        assert_eq!(pad.holding(), 2);
+        assert!(pad.duplicate_held());
+        assert_eq!(pad.strokes(), 4);
+        assert_eq!(pad.holding(), 2, "the copies are the ones held now");
+        assert!((pad.drawing.strokes[2].dabs[0].x - 28.0).abs() < 0.5, "and lie beside the first, not on it");
+
+        let kept = pad.cut_held();
+        assert_eq!((kept.len(), pad.strokes(), pad.holding()), (2, 2, 0), "cut takes them off the page and lets go");
+        assert!(!pad.delete_held(), "nothing is held, so nothing goes");
+
+        let mut other = Pad::of_page(TempDir::new("ink-held-b").path());
+        assert!(other.put(&kept, 50.0, 50.0));
+        assert_eq!((other.strokes(), other.holding()), (2, 2));
+        assert!(other.dirty, "so that it is saved");
     }
 
     #[test]
