@@ -141,6 +141,40 @@ fn data_dir(app: &AndroidApp) -> PathBuf {
     app.internal_data_path().unwrap_or_else(|| PathBuf::from("/data/local/tmp/notecraft"))
 }
 
+/// Points libgit2's OpenSSL at the certificates the system trusts. Android keeps them one file each
+/// under names OpenSSL does not look for (an older hash of the subject), so a directory of them is
+/// of no use to it: they are gathered into one bundle, kept beside the settings, and that is used.
+fn trust_system_certificates(data: &Path) {
+    let mut bundle = String::new();
+    for dir in ["/apex/com.android.conscrypt/cacerts", "/system/etc/security/cacerts"] {
+        let Ok(entries) = std::fs::read_dir(dir) else { continue };
+        let mut files: Vec<PathBuf> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+        files.sort();
+        for file in files {
+            if let Ok(pem) = std::fs::read_to_string(&file)
+                && let Some(from) = pem.find("-----BEGIN CERTIFICATE-----")
+            {
+                bundle.push_str(&pem[from..]);
+                if !bundle.ends_with('\n') {
+                    bundle.push('\n');
+                }
+            }
+        }
+        if !bundle.is_empty() {
+            break;
+        }
+    }
+    let file = data.join("cacerts.pem");
+    if bundle.is_empty() || (std::fs::read_to_string(&file).ok().as_deref() != Some(&bundle) && std::fs::write(&file, &bundle).is_err()) {
+        log::error!("no system certificates could be gathered; HTTPS sync will not verify servers");
+        return;
+    }
+    // SAFETY: called once at start-up, before libgit2 is used from any other thread.
+    if let Err(e) = unsafe { git2::opts::set_ssl_cert_file(&file) } {
+        log::error!("cannot give libgit2 the system certificates: {e}");
+    }
+}
+
 /// The notebooks folder, with the Welcome notebook installed the first time.
 fn open_session(data: &Path) -> Result<Session, String> {
     let root = data.join("NoteCraft");
@@ -155,8 +189,7 @@ fn open_session(data: &Path) -> Result<Session, String> {
 fn android_main(app: AndroidApp) {
     android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Debug).with_tag("NoteCraft"));
     // Sync talks HTTPS with the system's trusted certificates.
-    // SAFETY: called once at start-up, before libgit2 is used from any other thread.
-    let _ = unsafe { git2::opts::set_ssl_cert_dir("/system/etc/security/cacerts") };
+    trust_system_certificates(&data_dir(&app));
     // Exports go to the app's folder on shared storage, readable over USB and by adb
     // (there is no save dialog yet).
     rfd_android::set_save_dir(app.external_data_path().unwrap_or_else(|| data_dir(&app)).join("Exports"));
