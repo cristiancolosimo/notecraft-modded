@@ -135,6 +135,10 @@ pub struct Pad {
     loop_now: Vec<(f32, f32)>,
     /// Where a shape's drag began, which is one of the two corners it is drawn between.
     shape_from: Option<(f32, f32)>,
+    /// Strokes taken back, newest last, which Redo can put back; valid only while the drawing still
+    /// has `redo_len` strokes, that is, while nothing has been drawn or rubbed out since.
+    redone: Vec<Stroke>,
+    redo_len: usize,
     /// Where the pointer was when a move or a stretch began, and the box as it was then.
     grabbed: Option<(egui::Pos2, (f32, f32, f32, f32), Grab)>,
 }
@@ -156,7 +160,19 @@ impl Pad {
         let file = page_dir.join(FILE);
         let (drawing, flat) =
             std::fs::read_to_string(&file).ok().and_then(|text| svg::read(&text).ok()).unwrap_or_else(|| (Drawing::new(SHEET_W, SHEET_H), 0));
-        Pad { file, drawing, dirty: false, flat, drawing_now: None, held: Vec::new(), loop_now: Vec::new(), shape_from: None, grabbed: None }
+        Pad {
+            file,
+            drawing,
+            dirty: false,
+            flat,
+            drawing_now: None,
+            held: Vec::new(),
+            loop_now: Vec::new(),
+            shape_from: None,
+            redone: Vec::new(),
+            redo_len: 0,
+            grabbed: None,
+        }
     }
 
     /// How far right and down the ink reaches, the stroke being drawn included (0, 0 when empty).
@@ -225,9 +241,36 @@ impl Pad {
 
     /// Takes the last stroke back.
     pub fn undo(&mut self) -> bool {
+        // Anything drawn since the last undo replaces what could have been put back.
+        if self.drawing.strokes.len() != self.redo_len {
+            self.redone.clear();
+        }
+        let last = self.drawing.strokes.last().cloned();
         let went = self.drawing.undo();
+        if went && let Some(stroke) = last {
+            self.redone.push(stroke);
+        }
+        self.redo_len = self.drawing.strokes.len();
         self.dirty |= went;
         went
+    }
+
+    /// Whether Redo has a stroke to put back.
+    pub fn can_redo(&self) -> bool {
+        !self.redone.is_empty() && self.drawing.strokes.len() == self.redo_len
+    }
+
+    /// Puts back the stroke Undo took off last.
+    pub fn redo(&mut self) -> bool {
+        if !self.can_redo() {
+            self.redone.clear();
+            return false;
+        }
+        let Some(stroke) = self.redone.pop() else { return false };
+        let put = self.drawing.add(stroke);
+        self.redo_len = self.drawing.strokes.len();
+        self.dirty |= put;
+        put
     }
 
     pub fn strokes(&self) -> usize {
@@ -665,5 +708,28 @@ mod tests {
         let finger = [touch(5.0, None, egui::TouchPhase::Move)];
         assert!(pen_samples(&finger, 1.0).is_empty(), "a finger is not a pen's sample");
         assert!(pen_samples(&[touch(5.0, Some(f32::NAN), egui::TouchPhase::Move)], 1.0).is_empty(), "junk is dropped");
+    }
+
+    #[test]
+    fn a_stroke_taken_back_can_be_put_back_until_something_new_is_drawn() {
+        let t = TempDir::new("ink-redo");
+        let mut pad = Pad::of_page(t.path());
+        pad.drawing.add(stroke(10.0));
+        pad.drawing.add(stroke(50.0));
+        assert!(!pad.can_redo(), "nothing was taken back yet");
+        assert!(pad.undo() && pad.undo());
+        assert_eq!(pad.strokes(), 0);
+        assert!(pad.can_redo());
+        assert!(pad.redo(), "the first stroke comes back first");
+        assert_eq!(pad.drawing.strokes[0].dabs[0].x, 10.0);
+        assert!(pad.redo());
+        assert_eq!(pad.strokes(), 2);
+        assert!(!pad.redo(), "and then there is nothing left to put back");
+
+        // Drawing something new ends the chance to put the old strokes back.
+        assert!(pad.undo());
+        pad.drawing.add(stroke(90.0));
+        assert!(!pad.can_redo(), "a new stroke replaced what could have come back");
+        assert!(!pad.redo());
     }
 }

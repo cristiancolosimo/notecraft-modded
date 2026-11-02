@@ -118,6 +118,8 @@ pub enum Act {
     InkSensitivity(u8),
     /// Take the last stroke back.
     InkUndo,
+    /// Put back the stroke that was taken back.
+    InkRedo,
     /// Put a drawing on the page at the caret.
     InkInsert,
     /// Save the drawing beside the page as a plain picture, with no pen readings in it.
@@ -352,6 +354,8 @@ pub struct View<'a> {
     /// Whether the page has anything to take back, and anything to put back.
     pub can_undo: bool,
     pub can_redo: bool,
+    /// A stroke of ink was taken back and can be put back.
+    pub ink_redo: bool,
     /// How readily the pen answers pressure, 0 to 100.
     pub sensitivity: u8,
     /// Whether the current input path has reported a pressure-capable pen.
@@ -488,81 +492,207 @@ pub const QUICK_BAR_H: f32 = 56.0;
 
 pub fn quick_draw_bar(ui: &mut Ui, view: &View<'_>, t: &Tokens) -> Vec<Act> {
     let mut acts = Vec::new();
-    scrolling_ribbon(ui, "quick-draw-bar", t, |ui| {
-        ui.horizontal_centered(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            ui.add_space(6.0);
-            if chip(ui, "Exit full page", "Show the notebooks and the ribbon again", false, t, |p, r| {
-                icons::paint(p, r.shrink(11.0), Icon::ExitFullPage, t.text)
-            })
-            .clicked()
-            {
-                acts.push(Act::ToggleFullPage);
-            }
-            if chip(ui, "Undo stroke", "Take the last stroke back", false, t, |p, r| icons::paint(p, r.shrink(11.0), Icon::Undo, t.text)).clicked() {
-                acts.push(Act::InkUndo);
-            }
-            divider(ui, t);
-            for (label, tip, pointer, icon) in [
-                ("Type", "Put the pointer back to the words and the caret", Pointer::Write, Icon::DirLtr),
-                ("Select", "Pick a stroke up to move, stretch or delete it", Pointer::Pick, Icon::Pointer),
-                ("Lasso Select", "Draw a loop round ink to pick it up", Pointer::Lasso, Icon::Lasso),
-            ] {
-                if chip(ui, label, tip, view.pointer == pointer, t, |p, r| icons::paint(p, r.shrink(11.0), icon, t.text)).clicked() {
-                    acts.push(Act::InkPointer(pointer));
-                }
-            }
-            if chip(ui, "Eraser", "Rub strokes out", view.pointer == Pointer::Erase, t, |p, r| {
-                let body = egui::Rect::from_center_size(r.center(), vec2(22.0, 13.0));
-                p.rect_filled(body, 3.0, crate::theme::mix(t.panel, t.text, 0.75));
-                p.rect_filled(egui::Rect::from_min_max(body.min, egui::pos2(body.min.x + 8.0, body.max.y)), 3.0, t.accent);
-            })
-            .clicked()
-            {
-                acts.push(Act::InkPointer(Pointer::Erase));
-            }
-            divider(ui, t);
-            for (i, nib) in view.rack.iter().enumerate() {
-                let chosen = view.pointer == Pointer::Draw && view.nib == i;
-                let label = format!("{} {}", nib.tool.label(), swatch_name(nib.colour));
-                let tip = format!("{} ({} px)", label, nib.width());
-                let colour = egui::Color32::from_rgb(nib.colour.0, nib.colour.1, nib.colour.2);
-                let marker = nib.tool == notecraft_ink::Tool::Highlighter;
-                if chip(ui, &label, &tip, chosen, t, |p, r| {
-                    let rim = egui::Stroke::new(1.5, crate::theme::mix(t.panel, t.text, 0.55));
-                    if marker {
-                        let bar = egui::Rect::from_center_size(r.center(), vec2(24.0, 12.0));
-                        p.rect_filled(bar, 3.0, colour);
-                        p.rect_stroke(bar, 3.0, rim, egui::StrokeKind::Inside);
-                    } else {
-                        p.circle_filled(r.center(), 11.0, colour);
-                        p.circle_stroke(r.center(), 11.0, rim);
-                    }
-                })
-                .clicked()
-                {
-                    acts.push(Act::InkPen(i));
-                }
-            }
-            divider(ui, t);
-            // The paper under the page: none, lines or squares, and a page colour. A grid is
-            // what makes handwriting and diagrams come out straight, so it is one press away.
-            let on = view.rules != RuleLines::None;
-            let paper = chip(ui, "Paper", "Lines, squares or no paper behind the page", on, t, |p, r| {
-                let g = egui::Rect::from_center_size(r.center(), vec2(22.0, 22.0));
-                let line = egui::Stroke::new(1.3, t.text);
-                p.rect_stroke(g, 2.0, line, egui::StrokeKind::Inside);
-                for k in 1..3 {
-                    let f = k as f32 / 3.0;
-                    p.line_segment([egui::pos2(g.min.x + g.width() * f, g.min.y), egui::pos2(g.min.x + g.width() * f, g.max.y)], line);
-                    p.line_segment([egui::pos2(g.min.x, g.min.y + g.height() * f), egui::pos2(g.max.x, g.min.y + g.height() * f)], line);
-                }
+    // Back, forward and out stand at the right, where a hand that holds the tablet reaches them; the
+    // tools take the rest and scroll if they do not fit.
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.add_space(6.0);
+        if chip(ui, "Exit full page", "Show the notebooks and the ribbon again", false, t, |p, r| {
+            icons::paint(p, r.shrink(11.0), Icon::ExitFullPage, t.text)
+        })
+        .clicked()
+        {
+            acts.push(Act::ToggleFullPage);
+        }
+        divider(ui, t);
+        let redo = view.ink_redo;
+        if chip(ui, "Redo stroke", "Put the stroke back", false, t, |p, r| {
+            icons::paint(p, r.shrink(11.0), Icon::Redo, if redo { t.text } else { t.muted });
+        })
+        .clicked()
+            && redo
+        {
+            acts.push(Act::InkRedo);
+        }
+        if chip(ui, "Undo stroke", "Take the last stroke back", false, t, |p, r| icons::paint(p, r.shrink(11.0), Icon::Undo, t.text)).clicked() {
+            acts.push(Act::InkUndo);
+        }
+        divider(ui, t);
+        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            scrolling_ribbon(ui, "quick-draw-bar", t, |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    ui.add_space(6.0);
+                    quick_tools(ui, view, t, &mut acts);
+                });
             });
-            paper_popup(ui, &paper, egui::Id::new("quick-bar-paper"), view, t, &mut acts);
-            ui.add_space(6.0);
         });
     });
     acts
+}
+
+/// The pointers, the pens, and what a pen is made of (thickness, colour) and drawn on (paper).
+fn quick_tools(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
+    for (label, tip, pointer, icon) in [
+        ("Type", "Put the pointer back to the words and the caret", Pointer::Write, Icon::DirLtr),
+        ("Select", "Pick a stroke up to move, stretch or delete it", Pointer::Pick, Icon::Pointer),
+        ("Lasso Select", "Draw a loop round ink to pick it up", Pointer::Lasso, Icon::Lasso),
+    ] {
+        if chip(ui, label, tip, view.pointer == pointer, t, |p, r| icons::paint(p, r.shrink(11.0), icon, t.text)).clicked() {
+            acts.push(Act::InkPointer(pointer));
+        }
+    }
+    if chip(ui, "Eraser", "Rub strokes out", view.pointer == Pointer::Erase, t, |p, r| {
+        let body = egui::Rect::from_center_size(r.center(), vec2(22.0, 13.0));
+        p.rect_filled(body, 3.0, crate::theme::mix(t.panel, t.text, 0.75));
+        p.rect_filled(egui::Rect::from_min_max(body.min, egui::pos2(body.min.x + 8.0, body.max.y)), 3.0, t.accent);
+    })
+    .clicked()
+    {
+        acts.push(Act::InkPointer(Pointer::Erase));
+    }
+    divider(ui, t);
+    for (i, nib) in view.rack.iter().enumerate() {
+        let chosen = view.pointer == Pointer::Draw && view.nib == i;
+        let label = format!("{} {}", nib.tool.label(), swatch_name(nib.colour));
+        let tip = format!("{} ({} px)", label, nib.width());
+        let colour = egui::Color32::from_rgb(nib.colour.0, nib.colour.1, nib.colour.2);
+        let marker = nib.tool == notecraft_ink::Tool::Highlighter;
+        if chip(ui, &label, &tip, chosen, t, |p, r| paint_swatch(p, r, colour, marker, nib.width(), t)).clicked() {
+            acts.push(Act::InkPen(i));
+        }
+    }
+    divider(ui, t);
+    // The pen in hand: how thick it writes and what colour, each one press away.
+    let Some(nib) = view.rack.get(view.nib).copied().or_else(|| view.rack.first().copied()) else { return };
+    let index = view.rack.iter().position(|n| *n == nib).unwrap_or(0);
+    let colour = egui::Color32::from_rgb(nib.colour.0, nib.colour.1, nib.colour.2);
+    let size = chip(ui, "Thickness", "How thick the pen writes", false, t, |p, r| {
+        // The dot is the thickness it stands for, so the button says what it is set to.
+        let radius = (nib.width() / 2.0).clamp(1.5, 11.0);
+        p.circle_filled(r.center(), radius, t.text);
+    });
+    quick_popup(ui, &size, "quick-bar-thickness", |ui| {
+        let mut done = false;
+        ui.label(egui::RichText::new("Thickness").strong().color(t.text));
+        ui.horizontal(|ui| {
+            for tenths in rack::THICKNESSES {
+                let here = nib.tenths == tenths;
+                let (dot, resp) = ui.allocate_exact_size(vec2(42.0, 42.0), Sense::click());
+                let painter = ui.painter_at(dot);
+                if here {
+                    painter.rect_filled(dot, 8.0, crate::theme::mix(t.panel, t.accent, 0.18));
+                    painter.rect_stroke(dot, 8.0, egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
+                } else if resp.hovered() {
+                    painter.rect_filled(dot, 8.0, t.row_hover);
+                }
+                painter.circle_filled(dot.center(), (f32::from(tenths) / 10.0 / 2.0).clamp(1.2, 14.0), t.text);
+                let enabled = ui.is_enabled();
+                let name = format!("{:.1} pt", f32::from(tenths) / 10.0);
+                resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::RadioButton, enabled, here, name.clone()));
+                if resp.on_hover_text(format!("{:.1} pt", f32::from(tenths) / 10.0)).clicked() {
+                    acts.push(Act::InkPen(index));
+                    acts.push(Act::InkRack(RackEdit::Set(index, Nib::new(nib.tool, nib.colour, tenths))));
+                    done = true;
+                }
+            }
+        });
+        done
+    });
+    let hue = chip(ui, "Colour", "The colour the pen writes in, or any colour you make", false, t, |p, r| {
+        p.circle_filled(r.center(), 12.0, colour);
+        p.circle_stroke(r.center(), 12.0, egui::Stroke::new(1.5, crate::theme::mix(t.panel, t.text, 0.55)));
+    });
+    quick_popup(ui, &hue, "quick-bar-colour", |ui| {
+        let mut done = false;
+        ui.label(egui::RichText::new("Colour").strong().color(t.text));
+        for row in rack::PALETTE {
+            ui.horizontal(|ui| {
+                for c in row {
+                    let here = nib.colour == c;
+                    let (cell, resp) = ui.allocate_exact_size(vec2(38.0, 34.0), Sense::click());
+                    let painter = ui.painter_at(cell);
+                    painter.rect_filled(cell.shrink(3.0), 5.0, egui::Color32::from_rgb(c.0, c.1, c.2));
+                    let edge = if here { t.accent } else { crate::theme::mix(t.panel, t.text, 0.25) };
+                    painter.rect_stroke(cell.shrink(3.0), 5.0, egui::Stroke::new(if here { 2.5 } else { 0.8 }, edge), egui::StrokeKind::Outside);
+                    let enabled = ui.is_enabled();
+                    let name = format!("{} {}", swatch_name(c), c.hex());
+                    resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::RadioButton, enabled, here, name.clone()));
+                    if resp.on_hover_text(c.hex()).clicked() {
+                        acts.push(Act::InkPen(index));
+                        acts.push(Act::InkRack(RackEdit::Set(index, Nib::new(nib.tool, c, nib.tenths))));
+                        done = true;
+                    }
+                }
+            });
+        }
+        ui.separator();
+        // Any colour: the picker is always open here rather than behind another press.
+        ui.label(egui::RichText::new("Custom colour").strong().color(t.text));
+        let mut custom = colour;
+        if egui::color_picker::color_picker_color32(ui, &mut custom, egui::color_picker::Alpha::Opaque) {
+            acts.push(Act::InkPen(index));
+            acts.push(Act::InkRack(RackEdit::Set(index, Nib::new(nib.tool, Rgb(custom.r(), custom.g(), custom.b()), nib.tenths))));
+        }
+        done
+    });
+    divider(ui, t);
+    // The paper under the page: none, lines or squares, and a page colour. A grid is
+    // what makes handwriting and diagrams come out straight, so it is one press away.
+    let on = view.rules != RuleLines::None;
+    let paper = chip(ui, "Paper", "Lines, squares or no paper behind the page", on, t, |p, r| {
+        let g = egui::Rect::from_center_size(r.center(), vec2(22.0, 22.0));
+        let line = egui::Stroke::new(1.3, t.text);
+        p.rect_stroke(g, 2.0, line, egui::StrokeKind::Inside);
+        for k in 1..3 {
+            let f = k as f32 / 3.0;
+            p.line_segment([egui::pos2(g.min.x + g.width() * f, g.min.y), egui::pos2(g.min.x + g.width() * f, g.max.y)], line);
+            p.line_segment([egui::pos2(g.min.x, g.min.y + g.height() * f), egui::pos2(g.max.x, g.min.y + g.height() * f)], line);
+        }
+    });
+    paper_popup(ui, &paper, egui::Id::new("quick-bar-paper"), view, t, acts);
+    ui.add_space(6.0);
+}
+
+/// A pen on the quick bar: a disc of its colour, or a broad bar for a highlighter.
+fn paint_swatch(p: &egui::Painter, r: Rect, colour: egui::Color32, marker: bool, _width: f32, t: &Tokens) {
+    let rim = egui::Stroke::new(1.5, crate::theme::mix(t.panel, t.text, 0.55));
+    if marker {
+        let bar = egui::Rect::from_center_size(r.center(), vec2(24.0, 12.0));
+        p.rect_filled(bar, 3.0, colour);
+        p.rect_stroke(bar, 3.0, rim, egui::StrokeKind::Inside);
+    } else {
+        p.circle_filled(r.center(), 11.0, colour);
+        p.circle_stroke(r.center(), 11.0, rim);
+    }
+}
+
+/// A popup opened under `anchor` by pressing it, drawn by `content` (which says when a choice was
+/// made), and closed by a choice, a press elsewhere or Escape.
+fn quick_popup(ui: &mut Ui, anchor: &egui::Response, id: &str, content: impl FnOnce(&mut Ui) -> bool) {
+    let open_id = egui::Id::new(id);
+    let mut open = ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false));
+    if anchor.clicked() {
+        open = !open;
+    }
+    if open {
+        let mut done = false;
+        let area = egui::Area::new(open_id.with("area"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(anchor.rect.left_bottom())
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).corner_radius(8.0).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                    done = content(ui);
+                });
+            })
+            .response;
+        let away = ui.input(|i| i.pointer.any_click()) && !area.rect.contains(tap_pos(ui)) && !anchor.clicked();
+        if done || away || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            open = false;
+        }
+    }
+    ui.data_mut(|d| d.insert_temp(open_id, open));
 }
 
 /// One large target in the quick bar: 44 points square, lit when it is the one in use.
@@ -2323,13 +2453,9 @@ stroke",
         {
             acts.push(Act::InkUndo);
         }
-        soon(
-            ui,
-            Icon::Redo,
-            "Redo
-stroke",
-            t,
-        );
+        if big_on(ui, Icon::Redo, "Redo\nstroke", "Put the stroke back", false, t).clicked() && view.ink_redo {
+            acts.push(Act::InkRedo);
+        }
     });
     group(ui, "Selection", t, |ui| {
         if big_on(ui, Icon::Pointer, "Select", "Click a stroke to pick it up, then move, stretch or delete it", view.pointer == Pointer::Pick, t)

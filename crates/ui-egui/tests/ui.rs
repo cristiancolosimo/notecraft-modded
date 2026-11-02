@@ -4800,6 +4800,53 @@ fn full_page_view_swaps_the_ribbon_for_a_quick_draw_bar() {
     assert_eq!(ink["colour"].as_str(), Some("#d02121"), "the red pen is in hand: {ink}");
     assert_eq!(ink["pointer"].as_str(), Some("draw"));
 
+    // Back, forward and out stand together at the right, in that order, after the tools.
+    let x = |h: &mut Harness<'_, NoteCraftApp>, label: &str| h.get_by_label(label).rect().min.x;
+    let (undo, redo, exit, paper) = (x(&mut h, "Undo stroke"), x(&mut h, "Redo stroke"), x(&mut h, "Exit full page"), x(&mut h, "Paper"));
+    assert!(paper < undo && undo < redo && redo < exit, "tools, then back, forward, out: {paper} {undo} {redo} {exit}");
+    assert!(exit > 2400.0 - 80.0, "out is at the right edge: {exit}");
+
+    // The pen in hand: its thickness and its colour, each one press away.
+    h.get_by_label("Thickness").click();
+    settle(&mut h);
+    h.get_by_label("6.0 pt").click();
+    settle(&mut h);
+    let rack = look_at(&mut h)["ink"]["rack"].as_str().unwrap_or_default().to_string();
+    assert!(rack.contains("pen:#d02121:60"), "the red pen is now 6 pt thick: {rack}");
+    let first = notecraft_ink::rack::PALETTE[0][0];
+    h.get_by_label("Colour").click();
+    settle(&mut h);
+    h.get_by_label_contains(&first.hex()).click();
+    settle(&mut h);
+    let rack = look_at(&mut h)["ink"]["rack"].as_str().unwrap_or_default().to_string();
+    assert!(rack.contains(&format!("pen:{}:60", first.hex())), "and it writes in the colour chosen: {rack}");
+
+    // Back and forward: a stroke taken back can be put back.
+    let page = h.state().page_rect().expect("the page");
+    let y = page.min.y + 200.0;
+    ask(&mut h, "ui.press", json!({"x": page.min.x + 60.0, "y": y})).expect("down");
+    pump(&mut h);
+    for step in 1..=5 {
+        ask(&mut h, "ui.move", json!({"x": page.min.x + 60.0 + step as f32 * 30.0, "y": y})).expect("move");
+        pump(&mut h);
+    }
+    ask(&mut h, "ui.release", json!({"x": page.min.x + 210.0, "y": y})).expect("up");
+    let mut strokes = 0;
+    for _ in 0..20 {
+        settle(&mut h);
+        strokes = look_at(&mut h)["ink"]["strokes"].as_u64().unwrap_or(0);
+        if strokes == 1 {
+            break;
+        }
+    }
+    assert_eq!(strokes, 1, "one stroke was drawn");
+    h.get_by_label("Undo stroke").click();
+    settle(&mut h);
+    assert_eq!(look_at(&mut h)["ink"]["strokes"].as_u64(), Some(0), "taken back");
+    h.get_by_label("Redo stroke").click();
+    settle(&mut h);
+    assert_eq!(look_at(&mut h)["ink"]["strokes"].as_u64(), Some(1), "and put back");
+
     // The paper is one press away: a grid for straight handwriting and diagrams.
     assert_eq!(look_at(&mut h)["paper"], json!("none"), "no paper to begin with");
     h.get_by_label("Paper").click();

@@ -37,7 +37,10 @@ default (Type brings the caret back), and a finger drag on a drawing page scroll
 
 Full page view (the button at the top right of the page, or Draw, Full Page View) hides the
 notebooks and the ribbon and shows a single strip of large targets: back out, undo a stroke,
-Type, Select, Lasso, the eraser, and every pen on the rack as a swatch of its colour. A tab on
+Type, Select, Lasso, the eraser, and every pen on the rack as a swatch of its colour. Beside the
+pens are Thickness (six dots, each the width it stands for), Colour (a palette and an always-open
+picker for any colour you make; both change the pen in hand) and Paper. Back, forward and out
+stand together at the right edge. A tab on
 the header brings the ribbon back.
 
 ## Kinetic scrolling

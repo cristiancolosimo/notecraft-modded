@@ -2551,6 +2551,7 @@ impl NoteCraftApp {
             page_colour: self.editor.as_ref().and_then(|e| e.colour),
             can_undo: self.editor.as_ref().is_some_and(|e| e.history.can_undo()),
             can_redo: self.editor.as_ref().is_some_and(|e| e.history.can_redo()),
+            ink_redo: self.pad.as_ref().is_some_and(|p| p.can_redo()),
             sensitivity: self.sensitivity,
             pressure_available: self.stylus.sample().pen,
             has_page: self.editor.is_some(),
@@ -2858,6 +2859,7 @@ impl NoteCraftApp {
                 let _ = self.session.settings.set(SENSITIVITY_KEY, &self.sensitivity.to_string());
             }
             ribbon::Act::InkUndo => self.ink_undo(),
+            ribbon::Act::InkRedo => self.ink_redo(),
             ribbon::Act::InkInsert => self.ink_insert(),
             ribbon::Act::InkExportPlain => self.ink_export_plain(),
         }
@@ -3075,6 +3077,19 @@ impl NoteCraftApp {
     }
 
     /// Takes the last stroke back out of the drawing on this page.
+    fn ink_redo(&mut self) {
+        let Some(pad) = self.pad.as_mut() else { return };
+        if !pad.redo() {
+            self.say("There is no stroke to put back");
+            return;
+        }
+        match pad.save() {
+            Ok(()) => {}
+            Err(e) => self.complain(&format!("Cannot write the drawing: {e}")),
+        }
+        self.sync_ink_reference();
+    }
+
     fn ink_undo(&mut self) {
         let Some(pad) = self.pad.as_mut() else {
             self.say("There is no drawing on this page");
