@@ -1092,8 +1092,7 @@ fn align_menu(ui: &mut Ui, t: &Tokens, acts: &mut Vec<Act>) {
                 });
             })
             .response;
-        let clicked_away =
-            ui.input(|i| i.pointer.any_click()) && !area.rect.contains(ui.ctx().pointer_latest_pos().unwrap_or_default()) && !resp.clicked();
+        let clicked_away = ui.input(|i| i.pointer.any_click()) && !area.rect.contains(tap_pos(ui)) && !resp.clicked();
         if picked || clicked_away || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             open = false;
         }
@@ -1138,8 +1137,7 @@ fn run_direction_menu(ui: &mut Ui, t: &Tokens, acts: &mut Vec<Act>) {
                 });
             })
             .response;
-        let clicked_away =
-            ui.input(|i| i.pointer.any_click()) && !area.rect.contains(ui.ctx().pointer_latest_pos().unwrap_or_default()) && !resp.clicked();
+        let clicked_away = ui.input(|i| i.pointer.any_click()) && !area.rect.contains(tap_pos(ui)) && !resp.clicked();
         if picked || clicked_away || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             open = false;
         }
@@ -1476,8 +1474,7 @@ fn table_menu(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
             });
         })
         .response;
-    let clicked_away =
-        ui.input(|i| i.pointer.any_click()) && !area.rect.contains(ui.ctx().pointer_latest_pos().unwrap_or_default()) && !resp.clicked();
+    let clicked_away = ui.input(|i| i.pointer.any_click()) && !area.rect.contains(tap_pos(ui)) && !resp.clicked();
     if picked || clicked_away || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         open = false;
     }
@@ -1538,8 +1535,7 @@ fn rule_lines_menu(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>
                 });
             })
             .response;
-        let clicked_away =
-            ui.input(|i| i.pointer.any_click()) && !area.rect.contains(ui.ctx().pointer_latest_pos().unwrap_or_default()) && !resp.clicked();
+        let clicked_away = ui.input(|i| i.pointer.any_click()) && !area.rect.contains(tap_pos(ui)) && !resp.clicked();
         if picked || clicked_away || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             open = false;
         }
@@ -1660,6 +1656,13 @@ fn add_menu(ui: &mut Ui, t: &Tokens, acts: &mut Vec<Act>) {
     ui.data_mut(|d| d.insert_temp(id, open));
 }
 
+/// Where the pointer is, or where a finger last touched. On a touch screen egui has no pointer
+/// once the finger lifts (`latest_pos` is `None`), which made every popup that asks "was that
+/// click outside me?" answer yes for a tap on its own button, and close the moment it opened.
+fn tap_pos(ui: &Ui) -> egui::Pos2 {
+    ui.input(|i| i.pointer.interact_pos().or(i.pointer.latest_pos())).unwrap_or_default()
+}
+
 /// True when the pointer was clicked anywhere but in this popup or on the button that
 /// opened it, or Escape was pressed: either way the popup should close.
 ///
@@ -1667,7 +1670,7 @@ fn add_menu(ui: &mut Ui, t: &Tokens, acts: &mut Vec<Act>) {
 /// press and its release land on different frames, so on the release the button has not
 /// "clicked" and the popup it had just opened closed itself again.
 fn away(ui: &Ui, area: &egui::Response, button: &egui::Response) -> bool {
-    let at = ui.ctx().pointer_latest_pos().unwrap_or_default();
+    let at = tap_pos(ui);
     let out = ui.input(|i| i.pointer.any_click()) && !area.rect.contains(at) && !button.rect.contains(at);
     out || ui.input(|i| i.key_pressed(egui::Key::Escape))
 }
@@ -1850,7 +1853,7 @@ fn modify_tool(ui: &mut Ui, id: egui::Id, under: Rect, i: usize, nib: Nib, rack_
         })
         .response;
     ui.data_mut(|d| d.insert_temp(more_colours_id, more_colours));
-    let at = ui.ctx().pointer_latest_pos().unwrap_or_default();
+    let at = tap_pos(ui);
     let outside = ui.input(|i| i.pointer.any_click()) && !area.rect.contains(at) && !under.contains(at);
     done || outside || ui.input(|i| i.key_pressed(egui::Key::Escape))
 }

@@ -4674,6 +4674,56 @@ fn the_styles_list_applies_what_is_picked() {
     }
 }
 
+/// A finger tap on a gallery's arrow, as a touch screen delivers it: the pointer arrives with
+/// the press, lets go, and is gone in the same frame. The list must open and stay open, on a
+/// window as narrow as a tablet's.
+#[test]
+fn a_finger_tap_on_the_styles_arrow_opens_the_list_on_a_tablet_sized_window() {
+    let (_t, mut app, s) = sample_app("ui-tap-styles");
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = sized_harness(app, LIGHT, egui::vec2(1280.0, 800.0));
+    settle(&mut h);
+    assert_eq!(h.query_all_by_label("Heading 5").count(), 0, "the list starts closed");
+    let arrow = h.get_by_label("More styles").rect();
+    let pos = arrow.center();
+    h.event(egui::Event::PointerMoved(pos));
+    h.run();
+    h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+    h.run();
+    h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+    h.event(egui::Event::PointerGone);
+    for _ in 0..8 {
+        h.run();
+    }
+    assert!(h.query_all_by_label("Heading 5").count() >= 1, "the styles list is open after a tap");
+}
+
+/// With a pen in hand the page owns every press. That must stop at the page's own edge: a page
+/// scrolled down, with the pen picked, still lets the ribbon above it be pressed.
+#[test]
+fn the_ribbon_still_works_with_a_pen_in_hand_and_the_page_scrolled() {
+    let (_t, mut app, s) = sample_app("ui-ribbon-under-pen");
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = sized_harness(app, LIGHT, egui::vec2(1280.0, 800.0));
+    settle(&mut h);
+    h.get_by_label("Draw").click();
+    h.run();
+    h.get_by_label("Pen red").click();
+    h.run();
+    h.get_by_label("Home").click();
+    h.run();
+    for _ in 0..4 {
+        ask(&mut h, "ui.scroll", json!({"x": 0.0, "y": -300.0})).expect("scroll");
+        settle(&mut h);
+    }
+    let arrow = h.get_by_label("More styles").rect();
+    ask(&mut h, "ui.click", json!({"x": arrow.center().x, "y": arrow.center().y})).expect("click the arrow");
+    for _ in 0..8 {
+        pump(&mut h);
+    }
+    assert!(h.query_all_by_label("Heading 5").count() >= 1, "the styles list opened under a pen with the page scrolled");
+}
+
 /// Selecting a box selects everything in it, so the ribbon's marks, styles, Copy and Cut take all of it.
 #[test]
 fn a_selected_box_takes_the_ribbon_as_a_whole() {

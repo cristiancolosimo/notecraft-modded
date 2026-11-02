@@ -244,7 +244,9 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
     let _ = t;
     // Painting on the layer, not through the ui, so a stroke that runs past the words is
     // still drawn: the ui's own box ends where the text does.
-    let painter = ui.ctx().layer_painter(ui.layer_id()).with_clip_rect(body);
+    // Only what is on the screen: the canvas is larger than the window, and what is outside the
+    // scroll area belongs to the ribbon and the panels around it.
+    let painter = ui.ctx().layer_painter(ui.layer_id()).with_clip_rect(body.intersect(ui.clip_rect()));
     for stroke in pad.drawing.strokes.iter().chain(pad.drawing_now.iter()) {
         let mut scaled = stroke.clone();
         scaled.width *= zoom;
