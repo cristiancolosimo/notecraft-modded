@@ -590,6 +590,15 @@ impl Pad {
 /// How far a duplicate is laid from the ink it copies, in points, so it can be told apart.
 const DUPLICATE_STEP: f32 = 18.0;
 
+fn switch_id() -> egui::Id {
+    egui::Id::new("ink-switch-to-pick")
+}
+
+/// Whether the last frame asked for the arrow (Select), as Duplicate does; asking is cleared by this.
+pub fn take_switch_to_pick(ctx: &egui::Context) -> bool {
+    ctx.data_mut(|d| d.remove_temp::<bool>(switch_id())).unwrap_or(false)
+}
+
 /// What Copy and Cut keep, which is shared by every page so ink can be carried to another one.
 fn clipboard_id() -> egui::Id {
     egui::Id::new("ink-clipboard")
@@ -942,7 +951,11 @@ fn actions(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pointer: crate::ribbon:
             changed = true;
         }
         Some("delete") => changed |= pad.delete_held(),
-        Some("dup") => changed |= pad.duplicate_held(),
+        Some("dup") => {
+            changed |= pad.duplicate_held();
+            // The copy is held: the arrow takes it, where a lasso would start a new loop.
+            ctx.data_mut(|d| d.insert_temp(switch_id(), true));
+        }
         Some("paste") => changed |= pad.put(&clip, view_top_left.0, view_top_left.1),
         Some("all") => pad.select_all(),
         _ => {}

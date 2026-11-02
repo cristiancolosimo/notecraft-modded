@@ -4472,6 +4472,9 @@ impl NoteCraftApp {
                                 if let Some(pad) = pad.as_mut() {
                                     ink_changed |=
                                         crate::inkpad::show(ui, body, pad, pen, pressure, !pen_only || stylus_in_contact, &tokens, zoom_scale);
+                                    if crate::inkpad::take_switch_to_pick(ui.ctx()) {
+                                        page_acts.push(ribbon::Act::InkPointer(ribbon::Pointer::Pick));
+                                    }
                                 }
                                 // The page's own right-click menu. No widget is laid
                                 // over the page for it: a widget that senses clicks would
