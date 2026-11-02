@@ -407,6 +407,9 @@ it is fixed and tested, not when it is promised.
   control channel or telemetry, no stylus button or eraser end, a finger cannot scroll while a
   drawing tool is selected (the ink layer takes the touch and ignores it), and
   "open file" / "show folder" call `xdg-open`, which Android does not have.
+- **The page is endless only down and to the right.** It grows with the ink and scrolls both
+  ways, but there is no room above or left of its corner; getting that would mean moving every
+  block, box and stroke when the pen goes there.
 - **Sync is new** ([sync.md](sync.md)). Checked against a local Git server with a username and
   token, and against github.com over TLS from a desktop (the connection works; no push was made).
   Not checked: a push to a real GitHub repository, the TLS certificates on Android, and a very large

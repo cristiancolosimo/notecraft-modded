@@ -4304,7 +4304,10 @@ impl NoteCraftApp {
                     drag: egui::containers::scroll_area::DragScroll::Never,
                     ..egui::containers::scroll_area::ScrollSource::default()
                 };
-                egui::ScrollArea::vertical().id_salt("preview").scroll_source(scroll).max_height(height).show(ui, |ui| {
+                // The visible area: the scroll area below gives its content no limit in either
+                // direction, so the column is centred and sized by this instead.
+                let view = vec2(ui.available_width(), height);
+                egui::ScrollArea::both().id_salt("preview").scroll_source(scroll).max_height(height).show(ui, |ui| {
                     // Lines or squares behind the page, the way OneNote rules one. The
                     // spacing comes from the paper chosen; NoteCraft's own two papers draw
                     // every fifth line stronger, which the others do not.
@@ -4322,7 +4325,7 @@ impl NoteCraftApp {
                     // Which way lines fall when they say nothing themselves: the page's own
                     // direction, if the writer gave it one.
                     let page_dir = ed.page_dir;
-                    let available_width = ui.available_width();
+                    let available_width = view.x;
                     let page_column = 780.0 * zoom_scale;
                     let margin = if wide { ((available_width - page_column) / 2.0).max(8.0) } else { 0.0 };
                     egui::Frame::NONE.inner_margin(egui::Margin { left: margin as i8, right: margin as i8, top: 4, bottom: 8 }).show(ui, |ui| {
@@ -4381,12 +4384,15 @@ impl NoteCraftApp {
                                 // does. The room is claimed so the page can be scrolled
                                 // into it and so what is drawn there is never cut off.
                                 let used = ui.cursor().min.y - top.y;
-                                let want = crate::inkpad::SHEET_H.max(used + 240.0);
+                                // The canvas grows with the ink, down and to the right, without
+                                // a limit: the page is scrolled both ways to reach it.
+                                let far = pad.as_ref().map(|p| p.far()).unwrap_or((0.0, 0.0));
+                                let size = crate::inkpad::canvas((far.0 * zoom_scale, far.1 * zoom_scale), used, view, ui.max_rect().width());
+                                let want = size.y;
                                 if want > used {
-                                    ui.allocate_space(vec2(ui.available_width(), want - used));
+                                    ui.allocate_space(vec2(size.x, want - used));
                                 }
-                                let body =
-                                    egui::Rect::from_min_max(egui::pos2(ui.max_rect().min.x, top.y), egui::pos2(ui.max_rect().max.x, top.y + want));
+                                let body = egui::Rect::from_min_size(egui::pos2(ui.max_rect().min.x, top.y), size);
                                 page_rect = Some(body);
                                 if let Some(pad) = pad.as_mut() {
                                     ink_changed |=

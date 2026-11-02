@@ -33,6 +33,15 @@ navigation bar and keyboard), so no button sits under a bar. The ribbon scrolls 
 header switch keeps the on-screen keyboard from opening; it is remembered. The pen draws by
 default (Type brings the caret back), and a finger drag on a drawing page scrolls it.
 
+## Endless page
+
+A page scrolls both ways and has no end down or to the right. It is as wide as its column until
+ink comes within about 120 points of the right edge; from then on it is half a screen wider than
+the furthest ink, so there is always room to keep writing, and it grows the same way downward.
+Drag a finger (or use the wheel, shift and wheel, or the scroll bars) to reach it. The ink file
+declares a sheet at least as big as its ink. Not built: room above and to the left of the page's
+corner (it would mean moving everything on the page).
+
 ## Sync
 
 File, Sync keeps the notebooks folder in a Git repository on a server (see [sync.md](sync.md)).

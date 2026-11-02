@@ -300,21 +300,27 @@ pub fn paint_paper(painter: &egui::Painter, area: egui::Rect, rules: RuleLines, 
     }
     let step = (rules.step() * scale).max(4.0);
     let fives = rules.fives();
-    let colour = |n: usize| if fives && n.is_multiple_of(5) { strong } else { line };
-    let mut y = area.min.y + step;
-    let mut n = 0;
-    while y < area.max.y {
+    let colour = |n: i64| if fives && n.rem_euclid(5) == 0 { strong } else { line };
+    // Only what can be seen is drawn: the page has no end, so `area` may be unbounded. The
+    // lines are numbered from the page's own corner, so they stay put as it scrolls.
+    let seen = area.intersect(painter.clip_rect());
+    if !seen.is_positive() {
+        return;
+    }
+    let first_row = ((seen.min.y - area.min.y) / step).floor().max(1.0) as i64;
+    let mut n = first_row;
+    while area.min.y + n as f32 * step < seen.max.y {
+        let y = area.min.y + n as f32 * step;
+        painter.line_segment([egui::pos2(seen.min.x, y), egui::pos2(seen.max.x, y)], egui::Stroke::new(1.0, colour(n)));
         n += 1;
-        painter.line_segment([egui::pos2(area.min.x, y), egui::pos2(area.max.x, y)], egui::Stroke::new(1.0, colour(n)));
-        y += step;
     }
     if rules.squares() {
-        let mut x = area.min.x + step;
-        let mut n = 0;
-        while x < area.max.x {
+        let first_col = ((seen.min.x - area.min.x) / step).floor().max(1.0) as i64;
+        let mut n = first_col;
+        while area.min.x + n as f32 * step < seen.max.x {
+            let x = area.min.x + n as f32 * step;
+            painter.line_segment([egui::pos2(x, seen.min.y), egui::pos2(x, seen.max.y)], egui::Stroke::new(1.0, colour(n)));
             n += 1;
-            painter.line_segment([egui::pos2(x, area.min.y), egui::pos2(x, area.max.y)], egui::Stroke::new(1.0, colour(n)));
-            x += step;
         }
     }
 }
@@ -2608,5 +2614,19 @@ mod tests {
         assert_ne!(Act::Mark("bold"), Act::Mark("italic"));
         assert_ne!(Act::Block("h1"), Act::Insert("h1"));
         assert_eq!(Act::Tab("Insert".into()), Act::Tab("Insert".to_string()));
+    }
+
+    #[test]
+    fn paper_on_a_page_without_an_end_is_drawn_only_where_it_can_be_seen() {
+        let ctx = egui::Context::default();
+        let painter = ctx
+            .layer_painter(egui::LayerId::background())
+            .with_clip_rect(egui::Rect::from_min_size(egui::pos2(0.0, 5000.0), egui::vec2(300.0, 200.0)));
+        // An area with no end in either direction must not loop for ever.
+        let unbounded = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(f32::INFINITY, f32::INFINITY));
+        let strong = egui::Color32::WHITE;
+        for rules in [RuleLines::Standard, RuleLines::CraftGrid] {
+            paint_paper(&painter, unbounded, rules, 1.0, strong, strong);
+        }
     }
 }

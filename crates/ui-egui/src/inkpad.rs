@@ -74,6 +74,21 @@ pub fn is_old_sheet(src: &str) -> bool {
 pub const SHEET_W: f32 = 820.0;
 pub const SHEET_H: f32 = 1100.0;
 
+/// How close to the right edge of the column ink has to come before the page grows sideways.
+const EDGE: f32 = 120.0;
+
+/// How large the ink canvas is, in points: `far` is how far the ink reaches (already scaled
+/// by the zoom), `used` how tall the words are, `view` the visible area and `column` the width
+/// of the page's column. The page is as wide as its column until ink comes within reach of
+/// the right edge, and from then on it is half a screen wider than the furthest ink, so
+/// there is always room to keep writing. Down, it is always at least the sheet and the words
+/// and half a screen past the lowest ink. There is no limit either way.
+pub fn canvas(far: (f32, f32), used: f32, view: egui::Vec2, column: f32) -> egui::Vec2 {
+    let width = if far.0 > column - EDGE { far.0 + view.x * 0.5 } else { column };
+    let height = SHEET_H.max(used + 240.0).max(far.1 + view.y * 0.5);
+    vec2(width.max(column), height)
+}
+
 /// The ink of one page.
 #[derive(Clone, Debug)]
 pub struct Pad {
@@ -117,8 +132,22 @@ impl Pad {
         Pad { file, drawing, dirty: false, flat, drawing_now: None, held: Vec::new(), loop_now: Vec::new(), shape_from: None, grabbed: None }
     }
 
+    /// How far right and down the ink reaches, the stroke being drawn included (0, 0 when empty).
+    pub fn far(&self) -> (f32, f32) {
+        let mut far = self.drawing.bounds().map(|b| (b.2.max(0.0), b.3.max(0.0))).unwrap_or((0.0, 0.0));
+        if let Some((_, _, x, y)) = self.drawing_now.as_ref().and_then(Stroke::bounds) {
+            far = (far.0.max(x), far.1.max(y));
+        }
+        far
+    }
+
     /// Writes the ink, with its readings, which is what the page keeps.
     pub fn save(&mut self) -> std::io::Result<()> {
+        // The sheet the file declares is at least as big as the ink, which may run on past the
+        // usual page.
+        let far = self.far();
+        self.drawing.width = SHEET_W.max(far.0.ceil());
+        self.drawing.height = SHEET_H.max(far.1.ceil());
         if let Some(parent) = self.file.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -525,5 +554,39 @@ mod tests {
         let pad = Pad::of_page(&page);
         assert!(pad.is_empty(), "nothing was read, and nothing broke");
         assert!(pad.drawing.width >= 1.0 && pad.drawing.height >= 1.0);
+    }
+
+    #[test]
+    fn the_canvas_grows_when_ink_reaches_the_edge_and_never_shrinks_below_the_column() {
+        let view = vec2(1200.0, 800.0);
+        let column = 780.0;
+        // Nothing near the right edge: the page is just its column, as before.
+        assert_eq!(canvas((100.0, 100.0), 300.0, view, column).x, column);
+        // Ink within reach of the edge gives room beyond it, half a screen's worth.
+        let near = canvas((column - 20.0, 100.0), 300.0, view, column);
+        assert_eq!(near.x, column - 20.0 + 600.0);
+        // Further right still: it keeps going, with no limit.
+        let far = canvas((5000.0, 100.0), 300.0, view, column);
+        assert_eq!(far.x, 5600.0);
+        // Down: always the sheet, the text and some room, and half a screen past the lowest ink.
+        assert_eq!(canvas((0.0, 0.0), 300.0, view, column).y, SHEET_H);
+        assert_eq!(canvas((0.0, 3000.0), 300.0, view, column).y, 3400.0);
+    }
+
+    #[test]
+    fn the_pad_knows_how_far_the_ink_reaches_and_the_file_says_so() {
+        let t = TempDir::new("ink-layer-far");
+        let page = t.path().to_path_buf();
+        let mut pad = Pad::of_page(&page);
+        assert_eq!(pad.far(), (0.0, 0.0));
+        let mut s = Stroke::new(notecraft_ink::Tool::Pen, notecraft_ink::Rgb::BLACK, 2.0);
+        s.add(Dab::new(3000.0, 2500.0, 1.0));
+        pad.drawing.add(s);
+        let (x, y) = pad.far();
+        assert!(x >= 3000.0 && y >= 2500.0, "{x},{y}");
+        pad.save().expect("saved");
+        let text = std::fs::read_to_string(page.join(FILE)).expect("file");
+        assert!(text.contains("viewBox=\"0 0 3"), "the sheet the file declares covers the ink: {}", &text[..text.len().min(300)]);
+        assert!(Pad::of_page(&page).far().0 >= 3000.0, "and it comes back");
     }
 }

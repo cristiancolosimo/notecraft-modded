@@ -1344,6 +1344,46 @@ fn the_ribbon_theme_button_opens_the_chooser() {
     review(&mut h, "ribbon_theme");
 }
 
+/// The page has no end: ink written close to the right edge makes the sheet wider, so there is
+/// room to keep writing and the page scrolls sideways to it.
+#[test]
+fn ink_near_the_right_edge_makes_the_page_wider() {
+    let (_t, mut app, s) = sample_app("ui-wide-canvas");
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = harness(app, LIGHT);
+    settle(&mut h);
+    h.get_by_label("Draw").click();
+    h.run();
+    h.get_by_label("Pen red").click();
+    h.run();
+    let before = h.state().page_rect().expect("the page is on the screen");
+    let (right, y) = (before.max.x, before.min.y + 160.0);
+    ask(&mut h, "ui.press", json!({"x": right - 90.0, "y": y})).expect("down");
+    pump(&mut h);
+    for step in 1..=4 {
+        ask(&mut h, "ui.move", json!({"x": right - 90.0 + step as f32 * 15.0, "y": y})).expect("move");
+        pump(&mut h);
+    }
+    ask(&mut h, "ui.release", json!({"x": right - 30.0, "y": y})).expect("up");
+    let mut after = before;
+    for _ in 0..20 {
+        settle(&mut h);
+        after = h.state().page_rect().expect("the page is still there");
+        if after.width() > before.width() + 50.0 {
+            break;
+        }
+    }
+    assert!(after.width() > before.width() + 50.0, "the sheet grew: {} then {}", before.width(), after.width());
+    assert!(after.height() >= before.height(), "and did not shrink");
+
+    // And the page can be scrolled sideways to the new room.
+    let x_of = |h: &mut Harness<'_, NoteCraftApp>| look_at(h).pointer("/page/origin/0").and_then(Value::as_f64).unwrap_or(0.0);
+    let at = x_of(&mut h);
+    ask(&mut h, "ui.scroll", json!({"x": -300.0, "y": 0.0})).expect("scroll");
+    settle(&mut h);
+    assert!((x_of(&mut h) - at).abs() > 50.0, "the page moved sideways: {at} then {}", x_of(&mut h));
+}
+
 /// The Draw tab end to end: pick a pen off the rack, write on the page itself, and the
 /// strokes are in `ink.svg` in the page's own folder with the pen's readings in them. Then
 /// rub one out and take the other back.
