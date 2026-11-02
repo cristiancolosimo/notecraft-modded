@@ -207,6 +207,12 @@ fn android_main(app: AndroidApp) {
     android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Debug).with_tag("NoteCraft"));
     // Sync talks HTTPS with the system's trusted certificates.
     trust_system_certificates();
+    // A server that does not answer must end in an error, not in a sync that never finishes.
+    // SAFETY: called once at start-up, before libgit2 is used from any other thread.
+    unsafe {
+        let _ = git2::opts::set_server_connect_timeout_in_milliseconds(15_000);
+        let _ = git2::opts::set_server_timeout_in_milliseconds(60_000);
+    }
     // Exports go to the app's folder on shared storage, readable over USB and by adb
     // (there is no save dialog yet).
     rfd_android::set_save_dir(app.external_data_path().unwrap_or_else(|| data_dir(&app)).join("Exports"));

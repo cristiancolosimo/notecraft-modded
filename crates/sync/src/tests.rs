@@ -167,3 +167,18 @@ fn a_real_server_takes_the_token_and_refuses_a_wrong_one() {
     let wrong = sync(&b, &Config::new(&url, &user, "not-the-token"));
     assert!(wrong.is_err(), "a wrong token must fail, not loop: {wrong:?}");
 }
+
+#[test]
+fn a_sync_says_each_step_it_takes() {
+    let dir = Dir::new("progress");
+    let config = server(&dir);
+    let a = device(&dir, "a");
+    fs::write(a.join("page.md"), "# Hello").expect("write");
+    let said = std::sync::Mutex::new(Vec::<String>::new());
+    sync_with(&a, &config, &|text, _| said.lock().expect("lock").push(text.to_string())).expect("sync");
+    let said = said.into_inner().expect("lock");
+    for step in ["Saving local changes", "Fetching from the server", "Sending the changes", "Done"] {
+        assert!(said.iter().any(|s| s == step), "{step} missing from {said:?}");
+    }
+    assert_eq!(said.last().map(String::as_str), Some("Done"));
+}

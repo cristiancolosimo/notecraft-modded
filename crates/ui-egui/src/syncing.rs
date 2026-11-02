@@ -9,6 +9,7 @@ use notecraft_store::Settings;
 use notecraft_sync::{Config, Report};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// What the form edits.
@@ -25,7 +26,40 @@ pub struct Form {
 /// The default time between automatic syncs.
 pub const DEFAULT_MINUTES: u64 = 15;
 
+/// What a running sync is doing, written by its thread and read by the window.
+#[derive(Default)]
+pub struct Live {
+    /// The step it is on, as one line.
+    pub step: String,
+    /// How far along that step is, when it is known.
+    pub fraction: Option<f32>,
+    /// The steps so far, newest last; a step that only moves on (a count going up) replaces its line.
+    pub log: Vec<String>,
+    pub started: Option<Instant>,
+}
+
+/// The lines of a sync's log that are kept.
+const LOG_LINES: usize = 60;
+
+impl Live {
+    fn say(&mut self, text: &str, fraction: Option<f32>) {
+        self.step = text.to_string();
+        self.fraction = fraction;
+        // "Receiving objects 12/90 (1 KB)" and "Receiving objects 13/90 (2 KB)" are one line, moving.
+        let head = |t: &str| t.split(|c: char| c.is_ascii_digit()).next().unwrap_or("").to_string();
+        match self.log.last_mut() {
+            Some(last) if fraction.is_some() && head(last) == head(text) => *last = text.to_string(),
+            _ => self.log.push(text.to_string()),
+        }
+        if self.log.len() > LOG_LINES {
+            self.log.remove(0);
+        }
+    }
+}
+
 pub struct Syncing {
+    /// The running sync's progress, and the log of the last one after it ends.
+    pub live: Arc<Mutex<Live>>,
     pub form: Form,
     /// What the last sync did, or why it did not, for the File screen and the status bar.
     pub status: String,
@@ -65,7 +99,14 @@ impl Syncing {
             enabled: settings.get("sync_enabled").as_deref() == Some("true"),
         };
         // The first automatic sync waits a little, so the window opens first.
-        Syncing { form, status: String::new(), failed: false, next_due: Instant::now() + Duration::from_secs(20), running: None }
+        Syncing {
+            live: Arc::default(),
+            form,
+            status: String::new(),
+            failed: false,
+            next_due: Instant::now() + Duration::from_secs(20),
+            running: None,
+        }
     }
 
     /// Writes the form to the settings and the token file.
@@ -114,15 +155,30 @@ impl Syncing {
         }
         self.status = "Syncing...".into();
         self.failed = false;
+        if let Ok(mut live) = self.live.lock() {
+            *live = Live { started: Some(Instant::now()), ..Live::default() };
+            live.say("Starting", None);
+        }
+        let live = self.live.clone();
         let (tx, rx) = mpsc::channel();
         self.running = Some(rx);
         let (root, ctx) = (root.to_path_buf(), ctx.clone());
         std::thread::spawn(move || {
+            let say = |text: &str, fraction: Option<f32>| {
+                if let Ok(mut live) = live.lock() {
+                    live.say(text, fraction);
+                }
+                ctx.request_repaint();
+            };
+            say("Checking that the server can be reached", None);
             let result = if notecraft_sync::reachable(&config.url) {
-                notecraft_sync::sync(&root, &config)
+                notecraft_sync::sync_with(&root, &config, &say)
             } else {
                 Err("the server cannot be reached (no internet?)".to_string())
             };
+            if let Err(e) = &result {
+                say(&format!("Failed: {e}"), None);
+            }
             let _ = tx.send(result);
             ctx.request_repaint();
         });
@@ -148,6 +204,13 @@ impl Syncing {
                     self.failed = true;
                 }
             }
+        }
+        if self.busy()
+            && let Ok(live) = self.live.lock()
+        {
+            // The status bar shows the step too; the File screen shows the whole log.
+            self.status = format!("Syncing: {}", live.step);
+            ctx.request_repaint_after(Duration::from_millis(500));
         }
         if self.form.enabled && !self.busy() {
             let now = Instant::now();
@@ -208,5 +271,25 @@ mod tests {
         sync.form.minutes = "999999".into();
         assert_eq!(sync.minutes(), 24 * 60);
         let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+
+    #[test]
+    fn a_count_going_up_is_one_line_and_a_new_step_is_a_new_one() {
+        let mut live = Live::default();
+        live.say("Fetching", None);
+        live.say("Receiving objects 1/90 (1 KB)", Some(0.01));
+        live.say("Receiving objects 2/90 (2 KB)", Some(0.02));
+        live.say("Merging", None);
+        assert_eq!(live.log, vec!["Fetching", "Receiving objects 2/90 (2 KB)", "Merging"]);
+        assert_eq!(live.step, "Merging");
+        for i in 0..200 {
+            live.say(&format!("step {i}x"), None);
+        }
+        assert_eq!(live.log.len(), LOG_LINES);
     }
 }

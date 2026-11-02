@@ -266,6 +266,31 @@ fn sync_page(ui: &mut Ui, sync: &mut crate::syncing::Syncing, t: &Tokens, acts: 
     if !sync.status.is_empty() {
         ui.label(egui::RichText::new(&sync.status).color(if sync.failed { egui::Color32::from_rgb(0xe0, 0x5a, 0x4f) } else { t.muted }));
     }
+    // What the sync is doing now, or did last: a bar for the step, how long it has been going, and its log.
+    if let Ok(live) = sync.live.lock()
+        && !live.log.is_empty()
+    {
+        if sync.busy() {
+            ui.horizontal(|ui| {
+                ui.add(egui::Spinner::new());
+                if let Some(started) = live.started {
+                    ui.label(egui::RichText::new(format!("{} s", started.elapsed().as_secs())).color(t.muted));
+                }
+            });
+            match live.fraction {
+                Some(f) => ui.add(egui::ProgressBar::new(f).desired_width(420.0).show_percentage()),
+                None => ui.add(egui::ProgressBar::new(0.0).desired_width(420.0).animate(true)),
+            };
+        }
+        egui::Frame::NONE.fill(t.faint).corner_radius(4.0).inner_margin(6.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt("sync-log").max_height(150.0).stick_to_bottom(true).show(ui, |ui| {
+                ui.set_width(420.0);
+                for line in &live.log {
+                    ui.label(egui::RichText::new(line).monospace().size(11.0).color(t.muted));
+                }
+            });
+        });
+    }
     ui.add_space(8.0);
     ui.label(
         egui::RichText::new(

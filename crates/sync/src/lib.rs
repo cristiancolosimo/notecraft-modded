@@ -97,8 +97,42 @@ pub fn reachable(url: &str) -> bool {
     target.to_socket_addrs().ok().and_then(|mut a| a.next()).is_some_and(|addr| TcpStream::connect_timeout(&addr, Duration::from_secs(4)).is_ok())
 }
 
-fn callbacks(config: &Config) -> RemoteCallbacks<'_> {
+/// Told what a sync is doing: a line of text and, when it is known, how far along that step is (0 to 1).
+pub type Progress<'a> = &'a (dyn Fn(&str, Option<f32>) + Sync);
+
+fn size(bytes: usize) -> String {
+    if bytes >= 1 << 20 { format!("{:.1} MB", bytes as f64 / f64::from(1 << 20)) } else { format!("{} KB", bytes.div_ceil(1024)) }
+}
+
+fn fraction(done: usize, total: usize) -> Option<f32> {
+    (total > 0).then(|| (done as f32 / total as f32).clamp(0.0, 1.0))
+}
+
+fn callbacks<'a>(config: &'a Config, progress: Progress<'a>) -> RemoteCallbacks<'a> {
     let mut callbacks = RemoteCallbacks::new();
+    callbacks.transfer_progress(move |s| {
+        let (done, total) = (s.received_objects(), s.total_objects());
+        let what = if s.indexed_deltas() > 0 || (total > 0 && done == total) { "Resolving received objects" } else { "Receiving objects" };
+        progress(&format!("{what} {done}/{total} ({})", size(s.received_bytes())), fraction(done, total));
+        true
+    });
+    callbacks.pack_progress(move |stage, done, total| {
+        let what = match stage {
+            git2::PackBuilderStage::AddingObjects => "Counting objects",
+            git2::PackBuilderStage::Deltafication => "Compressing objects",
+        };
+        progress(&format!("{what} {done}/{total}"), fraction(done, total));
+    });
+    callbacks.push_transfer_progress(move |done, total, bytes| {
+        progress(&format!("Sending objects {done}/{total} ({})", size(bytes)), fraction(done, total));
+    });
+    callbacks.sideband_progress(move |data| {
+        // What the server says while it works ("remote: ...").
+        for line in String::from_utf8_lossy(data).split(['\r', '\n']).map(str::trim).filter(|l| !l.is_empty()) {
+            progress(&format!("Server: {line}"), None);
+        }
+        true
+    });
     let mut tries = 0;
     callbacks.credentials(move |_url, _user, allowed| {
         // A wrong token would be asked for again and again; one try, then the error.
@@ -244,10 +278,17 @@ fn checkout(repo: &Repository) -> Result<(), String> {
 
 /// Commits what changed here, takes in what changed there, and sends the result.
 pub fn sync(root: &Path, config: &Config) -> Result<Report, String> {
+    sync_with(root, config, &|_, _| {})
+}
+
+/// [`sync`], saying what it is doing as it goes.
+pub fn sync_with(root: &Path, config: &Config, progress: Progress<'_>) -> Result<Report, String> {
     if !config.is_complete() {
         return Err("the sync address, username and token are not all set".into());
     }
+    progress("Opening the notes' repository", None);
     let repo = open(root, &config.branch)?;
+    progress("Saving local changes", None);
     let mut report = Report { committed: commit_local(&repo, &config.branch)?, ..Report::default() };
     let mut remote = match repo.find_remote("origin") {
         Ok(remote) => {
@@ -260,14 +301,16 @@ pub fn sync(root: &Path, config: &Config) -> Result<Report, String> {
         Err(_) => repo.remote("origin", &config.url).map_err(|e| err("cannot set the remote", e))?,
     };
     let refspec = format!("+refs/heads/{0}:refs/remotes/origin/{0}", config.branch);
+    progress("Fetching from the server", None);
     let mut fetch = FetchOptions::new();
-    fetch.remote_callbacks(callbacks(config));
+    fetch.remote_callbacks(callbacks(config, progress));
     match remote.fetch(&[refspec.as_str()], Some(&mut fetch), None) {
         Ok(()) => {}
         // A brand new remote has no branch yet: there is nothing to take in, only to send.
         Err(e) if e.code() == ErrorCode::NotFound || e.message().contains("couldn't find remote ref") => {}
         Err(e) => return Err(err("cannot reach the remote", e)),
     }
+    progress("Merging what came from the server", None);
     let (pulled, conflicts) = merge_remote(&repo, &config.branch)?;
     report.pulled = pulled;
     report.conflicts = conflicts;
@@ -276,8 +319,9 @@ pub fn sync(root: &Path, config: &Config) -> Result<Report, String> {
     let known = repo.find_reference(&format!("refs/remotes/origin/{}", config.branch)).ok().and_then(|r| r.target());
     if head.is_some() && head != known {
         let mut rejected: Option<String> = None;
+        progress("Sending the changes", None);
         {
-            let mut callbacks = callbacks(config);
+            let mut callbacks = callbacks(config, progress);
             callbacks.push_update_reference(|_name, status| {
                 if let Some(status) = status {
                     rejected = Some(status.to_string());
@@ -294,6 +338,7 @@ pub fn sync(root: &Path, config: &Config) -> Result<Report, String> {
         }
         report.pushed = true;
     }
+    progress("Done", Some(1.0));
     Ok(report)
 }
 
