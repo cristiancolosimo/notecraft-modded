@@ -4737,6 +4737,7 @@ fn full_page_view_swaps_the_ribbon_for_a_quick_draw_bar() {
     h.get_by_label("Draw").click();
     settle(&mut h);
     assert_eq!(h.query_all_by_label("Exit full page").count(), 0, "the bar is not there outside full page view");
+    assert!(h.query_all_by_label_contains("Drop a file onto the page").count() >= 1, "the hint shows on a normal page");
     h.get_by_label_contains("Full Page").click();
     settle(&mut h);
 
@@ -4746,6 +4747,8 @@ fn full_page_view_swaps_the_ribbon_for_a_quick_draw_bar() {
         assert!(h.query_all_by_label(tool).count() >= 1, "{tool} is on the quick bar");
     }
     assert_eq!(h.query_all_by_label("Clipboard").count(), 0, "and the ribbon's groups are gone");
+    assert_eq!(h.query_all_by_label_contains("Drop a file onto the page").count(), 0, "so are the hint and the path above the page");
+    assert_eq!(h.query_all_by_label_contains("untitled").count(), 0, "and the page's name");
 
     h.get_by_label("Pen red").click();
     settle(&mut h);

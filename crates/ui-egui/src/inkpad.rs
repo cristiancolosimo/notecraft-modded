@@ -302,8 +302,13 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
     // `ink_allowed` is false for a finger when only the pen may write.
     let down = ink_allowed && resp.is_pointer_button_down_on();
     // A finger on the ink layer scrolls the page, as it would anywhere else.
-    if !ink_allowed && resp.dragged() {
-        ui.scroll_with_delta(resp.drag_delta());
+    // It keeps coasting after the finger lifts, and a touch of the glass catches it.
+    {
+        let drag = (!ink_allowed && resp.dragged()).then(|| resp.drag_delta());
+        let moved = crate::kinetic::step(ui.ctx(), ui.id().with("ink-fling"), drag, crate::kinetic::both());
+        if moved != egui::Vec2::ZERO {
+            ui.scroll_with_delta(moved);
+        }
     }
     let at = ui.ctx().pointer_interact_pos().filter(|p| body.contains(*p)).map(|p| ((p.x - body.min.x) / zoom, (p.y - body.min.y) / zoom));
     let mut changed = false;

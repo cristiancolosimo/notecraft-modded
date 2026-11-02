@@ -427,9 +427,11 @@ fn scrolling_ribbon(ui: &mut Ui, id_salt: impl std::hash::Hash + std::fmt::Debug
     // A drag that began on the ribbon moves it, unless a widget (a slider) took the drag.
     let drag = ui.input(|i| {
         let began_here = i.pointer.press_origin().is_some_and(|p| area.contains(p));
-        if began_here && i.pointer.is_decidedly_dragging() { i.pointer.delta().x } else { 0.0 }
+        (began_here && i.pointer.is_decidedly_dragging()).then(|| vec2(i.pointer.delta().x, 0.0))
     });
-    let drag = if ui.ctx().dragged_id().is_none() { drag } else { 0.0 };
+    let drag = if ui.ctx().dragged_id().is_none() { drag } else { None };
+    // The strip keeps coasting after the finger lifts, and slows to a stop.
+    let drag = crate::kinetic::step(ui.ctx(), egui::Id::new("ribbon-fling").with(ui.id()), drag, vec2(1.0, 0.0)).x;
     let out = egui::ScrollArea::horizontal()
         .id_salt(id_salt)
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)

@@ -4247,56 +4247,59 @@ impl NoteCraftApp {
             let crumbs = ed.dir.strip_prefix(&root).map(|p| p.to_string_lossy().replace('\\', "  /  ")).unwrap_or_default();
             // One id for the title, whether it is drawn as words or as a text box.
             let title_id = egui::Id::new("page-title-box");
-            ui.label(egui::RichText::new(crumbs).small().color(tokens.muted));
-            ui.horizontal(|ui| {
-                // The title is not here any more. It is drawn on the sheet itself, at the
-                // top of the page, because the page's name is part of the page: that is
-                // what OneNote does and what the owner asked for on 2026-10-19. What is
-                // left in this strip is the things that are about the file rather than in
-                // it, and they stay out of the page.
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let state = if ed.dirty_since.is_some() {
-                        "Editing...".to_string()
-                    } else {
-                        ed.last_saved.clone().map(|t| format!("Saved {t}")).unwrap_or_else(|| "Saved".into())
-                    };
-                    ui.label(egui::RichText::new(state).small().color(tokens.muted));
-                    ui.label(egui::RichText::new(ed.format.label()).small().color(tokens.muted));
+            // Full page view gives the room to the page: no path, no hint, no strip of icons.
+            if !full_page {
+                ui.label(egui::RichText::new(crumbs).small().color(tokens.muted));
+                ui.horizontal(|ui| {
+                    // The title is not here any more. It is drawn on the sheet itself, at the
+                    // top of the page, because the page's name is part of the page: that is
+                    // what OneNote does and what the owner asked for on 2026-10-19. What is
+                    // left in this strip is the things that are about the file rather than in
+                    // it, and they stay out of the page.
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let state = if ed.dirty_since.is_some() {
+                            "Editing...".to_string()
+                        } else {
+                            ed.last_saved.clone().map(|t| format!("Saved {t}")).unwrap_or_else(|| "Saved".into())
+                        };
+                        ui.label(egui::RichText::new(state).small().color(tokens.muted));
+                        ui.label(egui::RichText::new(ed.format.label()).small().color(tokens.muted));
+                    });
                 });
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.label(egui::RichText::new("Drop a file onto the page to add it").small().color(tokens.muted));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // The page controls, in OneNote's order: full page, search, source.
-                    let full = icon_toggle(
-                        ui,
-                        if full_page { Icon::ExitFullPage } else { Icon::FullPage },
-                        full_page,
-                        &tokens,
-                        "Full page",
-                        if full_page { "Show the notebooks again" } else { "Give the page the whole window" },
-                    );
-                    if full.clicked() {
-                        toggle_full_page = true;
-                    }
-                    if icon_toggle(ui, Icon::Search, false, &tokens, "Search", "Search all pages").clicked() {
-                        focus_search = true;
-                    }
-                    if icon_toggle(
-                        ui,
-                        Icon::Code,
-                        show_source,
-                        &tokens,
-                        "Page source",
-                        if show_source { "Hide the page source" } else { "Show the page source" },
-                    )
-                    .clicked()
-                    {
-                        toggle_source = true;
-                    }
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new("Drop a file onto the page to add it").small().color(tokens.muted));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // The page controls, in OneNote's order: full page, search, source.
+                        let full = icon_toggle(
+                            ui,
+                            if full_page { Icon::ExitFullPage } else { Icon::FullPage },
+                            full_page,
+                            &tokens,
+                            "Full page",
+                            if full_page { "Show the notebooks again" } else { "Give the page the whole window" },
+                        );
+                        if full.clicked() {
+                            toggle_full_page = true;
+                        }
+                        if icon_toggle(ui, Icon::Search, false, &tokens, "Search", "Search all pages").clicked() {
+                            focus_search = true;
+                        }
+                        if icon_toggle(
+                            ui,
+                            Icon::Code,
+                            show_source,
+                            &tokens,
+                            "Page source",
+                            if show_source { "Hide the page source" } else { "Show the page source" },
+                        )
+                        .clicked()
+                        {
+                            toggle_source = true;
+                        }
+                    });
                 });
-            });
-            ui.separator();
+                ui.separator();
+            }
             let height = ui.available_height();
             // The page itself. Without the source beside it the page is a readable column,
             // the way a page looks in OneNote or Word, and a click puts the caret in it.
@@ -4345,7 +4348,7 @@ impl NoteCraftApp {
                         // The page's own name, at the top of the sheet. Before the sheet's
                         // origin is taken below, so the ink layer keeps its own coordinates
                         // and a drawing stays beside the words it was made next to.
-                        if !hide_title {
+                        if !hide_title && !full_page {
                             page_title(ui, ed, &tokens, title_id, rename, zoom_scale);
                         }
                         if wide && ed.writable {

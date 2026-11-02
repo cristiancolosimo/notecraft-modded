@@ -40,6 +40,12 @@ notebooks and the ribbon and shows a single strip of large targets: back out, un
 Type, Select, Lasso, the eraser, and every pen on the rack as a swatch of its colour. A tab on
 the header brings the ribbon back.
 
+## Kinetic scrolling
+
+A finger drag on a drawing page or on the ribbon keeps coasting after the finger lifts, slowing
+to a stop (`kinetic.rs`); a touch of the glass catches it. The lists beside the page use egui's
+own touch scrolling. In Type mode a finger drag over text selects it, as before.
+
 ## Endless page
 
 A page scrolls both ways and has no end down or to the right. It is as wide as its column until

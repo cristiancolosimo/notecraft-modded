@@ -33,6 +33,7 @@ pub mod input_language {
     pub use notecraft_input_language::{Watcher, is_rtl, watch_changes};
 }
 pub mod inkpad;
+pub mod kinetic;
 pub mod mathview;
 pub mod navhistory;
 pub mod pageedit;
