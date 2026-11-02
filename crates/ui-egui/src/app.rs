@@ -5951,6 +5951,11 @@ impl NoteCraftApp {
     }
     /// Draws the whole window. Call once per frame.
     pub fn show(&mut self, ui: &mut Ui) {
+        #[cfg(target_os = "android")]
+        if let Some(notice) = rfd::take_notice() {
+            self.status = notice;
+            self.status_is_error = true;
+        }
         // The ui is the room the system leaves (see the Android shell): dialogs are centred in it, not in
         // the whole window, where the keyboard would cover the very field being typed in.
         self.dialog_lift = ui.max_rect().center().y - ui.ctx().content_rect().center().y;
@@ -6132,6 +6137,14 @@ fn open_folder(dir: &Path) -> std::io::Result<()> {
     if !dir.is_dir() {
         return Err(std::io::Error::new(std::io::ErrorKind::NotFound, format!("{} does not exist", dir.display())));
     }
+    // Android has no file manager to show a notebook in: the notebooks are in the app's own private storage,
+    // which no other app can open. Say so, rather than failing to start a program that is not there.
+    if cfg!(target_os = "android") {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Android keeps the notebooks in the app's private storage; use Sync or Export to take them out",
+        ));
+    }
     let program = if cfg!(target_os = "windows") {
         "explorer"
     } else if cfg!(target_os = "macos") {
@@ -6146,6 +6159,9 @@ fn open_folder(dir: &Path) -> std::io::Result<()> {
 /// Opens a linked attachment with the operating system's associated application. Windows may
 /// show its own warning for files marked as downloaded; that prompt is intentionally preserved.
 pub(crate) fn open_file_for_viewer(file: &Path) -> std::io::Result<()> {
+    if cfg!(target_os = "android") {
+        return Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "opening a file in another app is not available on Android yet"));
+    }
     if cfg!(target_os = "windows") {
         std::process::Command::new("cmd").args(["/C", "start", "", &file.to_string_lossy()]).spawn().map(|_| ())
     } else if cfg!(target_os = "macos") {

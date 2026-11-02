@@ -53,7 +53,17 @@ impl FileDialog {
     }
 }
 
+static NOTICE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// What the owner should be told about a picker that chose nothing, once: the app shows it in its status bar.
+pub fn take_notice() -> Option<String> {
+    NOTICE.lock().ok().and_then(|mut n| n.take())
+}
+
 fn unsupported() -> Option<PathBuf> {
     eprintln!("NoteCraft: the file picker is not available on Android yet");
+    if let Ok(mut notice) = NOTICE.lock() {
+        *notice = Some("There is no file chooser on Android yet; pictures come from Insert, Picture, and notes travel by Sync".into());
+    }
     None
 }
