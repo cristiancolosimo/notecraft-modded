@@ -138,6 +138,9 @@ fn side_bar(ui: &mut Ui, page: &str, t: &Tokens, acts: &mut Vec<Act>) {
         }
         ui.add_space(8.0);
         for (name, built) in SIDE {
+            if !built && !crate::ribbon::SHOW_UNBUILT {
+                continue;
+            }
             let selected = name == page;
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
             let painter = ui.painter_at(rect);
@@ -220,11 +223,15 @@ fn info_page(ui: &mut Ui, notebooks: &[Node], folder: &str, show_path: &dyn Fn(&
     ui.add_space(6.0);
     ui.separator();
     ui.label(egui::RichText::new(format!("All of them live in {folder}")).size(11.5).color(t.muted));
-    ui.label(
-        egui::RichText::new("Online notebooks (OneDrive, SharePoint) are not built. A notebook in a folder your sync tool watches is synced by it.")
+    if crate::ribbon::SHOW_UNBUILT {
+        ui.label(
+            egui::RichText::new(
+                "Online notebooks (OneDrive, SharePoint) are not built. A notebook in a folder your sync tool watches is synced by it.",
+            )
             .size(11.5)
             .color(t.muted),
-    );
+        );
+    }
 }
 
 /// Sync: the notebooks folder kept in a Git repository on a server.
@@ -345,15 +352,17 @@ fn new_page(ui: &mut Ui, folder: &str, t: &Tokens, acts: &mut Vec<Act>) {
     if ui.button("Add the welcome notebook").clicked() {
         acts.push(Act::AddWelcome);
     }
-    ui.add_space(14.0);
-    ui.label(egui::RichText::new("Somewhere else").size(14.0).color(t.strong));
-    ui.label(
-        egui::RichText::new(
-            "OneDrive and SharePoint: not built. Point NoteCraft at a folder your sync tool already watches and it is the same thing.",
-        )
-        .size(11.5)
-        .color(t.muted),
-    );
+    if crate::ribbon::SHOW_UNBUILT {
+        ui.add_space(14.0);
+        ui.label(egui::RichText::new("Somewhere else").size(14.0).color(t.strong));
+        ui.label(
+            egui::RichText::new(
+                "OneDrive and SharePoint: not built. Point NoteCraft at a folder your sync tool already watches and it is the same thing.",
+            )
+            .size(11.5)
+            .color(t.muted),
+        );
+    }
 }
 
 fn open_page(ui: &mut Ui, recent: &[Node], folder: &str, show_path: &dyn Fn(&std::path::Path) -> String, t: &Tokens, acts: &mut Vec<Act>) {

@@ -1396,8 +1396,8 @@ fn ink_is_written_on_the_page_itself_and_saved_beside_it() {
     h.get_by_label("Draw").click();
     h.run();
 
-    // Every group OneNote's Draw tab has is on the screen, built or honestly labelled.
-    for group in ["Undo", "Selection", "Drawing Tools", "Input Mode", "Stencils", "Edit", "Shapes", "Text", "Math", "Replay", "Mode", "Help"] {
+    // Every group of the Draw tab that does something is on the screen.
+    for group in ["Undo", "Selection", "Drawing Tools", "Edit", "Shapes", "Mode"] {
         assert!(h.query_all_by_label(group).count() >= 1, "the {group} group is there");
     }
     for pen in ["Pen black", "Pen red", "Pen blue", "Pen green", "Pencil grey", "Highlighter yellow", "Highlighter mint"] {
@@ -1806,7 +1806,7 @@ fn the_insert_tab_has_onenotes_groups_and_its_stamps_work() {
     h.get_by_label("Insert").click();
     h.run();
 
-    for group in ["Insert", "Tables", "Files", "Images", "Media", "Links", "Recording", "Time Stamp", "Pages", "Symbols", "More"] {
+    for group in ["Insert", "Tables", "Files", "Images", "Links", "Time Stamp", "Symbols", "More"] {
         assert!(h.query_all_by_label(group).count() >= 1, "the {group} group is there");
     }
     for control in ["Table", "File Attachment", "Pictures", "Link", "Date", "Time", "Date & Time", "Equation", "Diagram"] {
@@ -2170,7 +2170,7 @@ fn the_table_tab_comes_with_the_caret_and_changes_the_table() {
     h.get_by_label("Table").click();
     settle(&mut h);
     review(&mut h, "tab_table");
-    for group in ["Select", "Delete", "Insert", "Merge", "Format", "Alignment", "Data", "Convert"] {
+    for group in ["Select", "Delete", "Insert", "Format", "Convert"] {
         assert!(h.query_all_by_label(group).count() >= 1, "the {group} group is there");
     }
 
@@ -3238,8 +3238,7 @@ Paper,12,
     assert!(state["status"]["text"].as_str().unwrap_or_default().contains("3 rows"), "{}", state["status"]);
 }
 
-/// A tab with many groups in a narrow window: the Draw tab has eleven, as OneNote's does,
-/// and they are wider than a small window. They scroll rather than being cut off, and every
+/// A tab with many groups in a narrow window: the Draw tab has seven, and they are wider than a small window. They scroll rather than being cut off, and every
 /// one of them is still there to be reached.
 #[test]
 fn the_ribbon_scrolls_rather_than_cutting_a_group_off() {
@@ -3248,7 +3247,7 @@ fn the_ribbon_scrolls_rather_than_cutting_a_group_off() {
     h.run();
     h.get_by_label("Draw").click();
     h.run();
-    let groups = ["Undo", "Selection", "Drawing Tools", "Input Mode", "Stencils", "Edit", "Shapes", "Text", "Math", "Replay", "Mode", "Help"];
+    let groups = ["Undo", "Selection", "Drawing Tools", "Edit", "Shapes", "Mode"];
 
     for width in [1400.0, 1100.0, 820.0, 640.0] {
         ask(&mut h, "ui.resize", json!({"width": width, "height": 700.0})).expect("resize");
@@ -4916,13 +4915,13 @@ fn a_ribbon_wider_than_the_window_scrolls_to_its_last_group() {
     let mut h = sized_harness(app, LIGHT, egui::vec2(width, 700.0));
     settle(&mut h);
     eprintln!(
-        "SEND PAGE {:?} right arrows {}",
-        h.query_all_by_label("Send Page").map(|n| n.rect()).collect::<Vec<_>>(),
+        "LAST GROUP {:?} right arrows {}",
+        h.query_all_by_label("To Do Tag").map(|n| n.rect()).collect::<Vec<_>>(),
         h.query_all_by_label("Scroll the ribbon right").count()
     );
     assert!(h.query_all_by_label("Scroll the ribbon left").count() == 0, "at the start there is nothing to the left");
     assert!(h.query_all_by_label("Scroll the ribbon right").count() == 1, "but more to the right");
-    assert!(h.get_by_label("Send Page").rect().max.x > width, "the last group starts out of sight");
+    assert!(h.get_by_label("To Do Tag").rect().max.x > width, "the last group starts out of sight");
     for _ in 0..10 {
         if h.query_all_by_label("Scroll the ribbon right").count() == 0 {
             break;
@@ -4932,7 +4931,7 @@ fn a_ribbon_wider_than_the_window_scrolls_to_its_last_group() {
     }
     assert!(h.query_all_by_label("Scroll the ribbon right").count() == 0, "the end was reached");
     assert!(h.query_all_by_label("Scroll the ribbon left").count() == 1, "and the way back is offered");
-    assert!(h.get_by_label("Send Page").rect().max.x <= width + 1.0, "the last group is on the screen");
+    assert!(h.get_by_label("To Do Tag").rect().max.x <= width + 1.0, "the last group is on the screen");
 }
 
 /// Selecting a box selects everything in it, so the ribbon's marks, styles, Copy and Cut take all of it.

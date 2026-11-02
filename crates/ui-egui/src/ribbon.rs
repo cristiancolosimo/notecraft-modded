@@ -1038,7 +1038,7 @@ fn home_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
             if mark_row(ui, Mark::Copy, "Copy", "Copy the selection", t).clicked() {
                 acts.push(Act::Clipboard("copy"));
             }
-            if mark_row(ui, Mark::Painter, "Format Painter", "Not built", t).clicked() {
+            if SHOW_UNBUILT && mark_row(ui, Mark::Painter, "Format Painter", "Not built", t).clicked() {
                 acts.push(Act::NotBuilt("Format Painter"));
             }
         });
@@ -1156,21 +1156,29 @@ fn home_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
         if big(ui, Icon::Todo, "To Do\nTag", "A to-do box on this line (Ctrl+1)", t).clicked() {
             acts.push(Act::Block("todo"));
         }
-        if big(ui, Icon::Search, "Find\nTags", "Not built", t).clicked() {
+        if SHOW_UNBUILT && big(ui, Icon::Search, "Find\nTags", "Not built", t).clicked() {
             acts.push(Act::NotBuilt("Find Tags"));
         }
     });
-    group(ui, "Email", t, |ui| {
-        if big(ui, Icon::Attach, "Send\nPage", "Not built", t).clicked() {
-            acts.push(Act::NotBuilt("Send Page"));
-        }
-    });
-    group(ui, "Meetings", t, |ui| {
-        if big(ui, Icon::Page, "Meeting\nDetails", "Not built", t).clicked() {
-            acts.push(Act::NotBuilt("Meeting Details"));
-        }
-    });
+    if SHOW_UNBUILT {
+        group(ui, "Email", t, |ui| {
+            if big(ui, Icon::Attach, "Send\nPage", "Not built", t).clicked() {
+                acts.push(Act::NotBuilt("Send Page"));
+            }
+        });
+    }
+    if SHOW_UNBUILT {
+        group(ui, "Meetings", t, |ui| {
+            if big(ui, Icon::Page, "Meeting\nDetails", "Not built", t).clicked() {
+                acts.push(Act::NotBuilt("Meeting Details"));
+            }
+        });
+    }
 }
+
+/// Whether the controls NoteCraft lists but has not built are drawn. They are hidden: a control that does
+/// nothing is only in the way, on a tablet most of all. Turn it on to see what the roadmap holds.
+pub const SHOW_UNBUILT: bool = false;
 
 /// A static name for a style, so an act can carry it.
 fn leak(kind: &str) -> &'static str {
@@ -1244,8 +1252,10 @@ fn gallery(ui: &mut Ui, which: &'static str, current: &str, t: &Tokens, acts: &m
                                 picked = true;
                             }
                         }
-                        ui.separator();
-                        ui.add_enabled(false, egui::Label::new(egui::RichText::new("Customize Tags... (not built)").color(t.muted)));
+                        if SHOW_UNBUILT {
+                            ui.separator();
+                            ui.add_enabled(false, egui::Label::new(egui::RichText::new("Customize Tags... (not built)").color(t.muted)));
+                        }
                     }
                 });
             })
@@ -1354,7 +1364,7 @@ fn align_menu(ui: &mut Ui, t: &Tokens, acts: &mut Vec<Act>) {
                         (Icon::AlignCenter, "Center", "Centring"),
                         (Icon::AlignRight, "Align Right", "Align right"),
                     ] {
-                        if floating::menu_row(ui, Some(Glyph::Icon(icon)), label, t).clicked() {
+                        if SHOW_UNBUILT && floating::menu_row(ui, Some(Glyph::Icon(icon)), label, t).clicked() {
                             acts.push(Act::NotBuilt(what));
                             picked = true;
                         }
@@ -1583,18 +1593,22 @@ fn insert_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
             acts.push(Act::AddPicture);
         }
     });
-    group(ui, "Media", t, |ui| {
-        soon(ui, Icon::Video, "Online\nVideo", t);
-    });
+    if SHOW_UNBUILT {
+        group(ui, "Media", t, |ui| {
+            soon(ui, Icon::Video, "Online\nVideo", t);
+        });
+    }
     group(ui, "Links", t, |ui| {
         if big(ui, Icon::Link, "Link", "A link to a page or an address", t).clicked() {
             acts.push(Act::Insert("link"));
         }
     });
-    group(ui, "Recording", t, |ui| {
-        soon(ui, Icon::Mic, "Transcribe", t);
-        soon(ui, Icon::Video, "Record\nVideo", t);
-    });
+    if SHOW_UNBUILT {
+        group(ui, "Recording", t, |ui| {
+            soon(ui, Icon::Mic, "Transcribe", t);
+            soon(ui, Icon::Video, "Record\nVideo", t);
+        });
+    }
     group(ui, "Time Stamp", t, |ui| {
         if big(ui, Icon::Calendar, "Date", "Today's date", t).clicked() {
             acts.push(Act::Insert("date"));
@@ -1606,9 +1620,11 @@ fn insert_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
             acts.push(Act::Insert("datetime"));
         }
     });
-    group(ui, "Pages", t, |ui| {
-        soon(ui, Icon::PageStack, "Page\nTemplates", t);
-    });
+    if SHOW_UNBUILT {
+        group(ui, "Pages", t, |ui| {
+            soon(ui, Icon::PageStack, "Page\nTemplates", t);
+        });
+    }
     group(ui, "Symbols", t, |ui| {
         equation_gallery(ui, t, acts);
         if big_menu(ui, Icon::Symbol, "Symbol", "Insert a common symbol", t).clicked() {
@@ -1757,8 +1773,10 @@ fn table_menu(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
                     acts.push(Act::InsertTable(r + 1, c + 1));
                     picked = true;
                 }
-                ui.separator();
-                ui.add_enabled(false, egui::Label::new(egui::RichText::new("Insert Table... (not built)").color(t.muted)));
+                if SHOW_UNBUILT {
+                    ui.separator();
+                    ui.add_enabled(false, egui::Label::new(egui::RichText::new("Insert Table... (not built)").color(t.muted)));
+                }
                 if view.gridcraft {
                     if floating::menu_row(ui, Some(Glyph::Icon(Icon::Spreadsheet)), "New GridCraft Spreadsheet", t).clicked() {
                         acts.push(Act::NewGridCraft);
@@ -1833,8 +1851,10 @@ fn paper_popup(ui: &mut Ui, anchor: &egui::Response, open_id: egui::Id, view: &V
                         }
                     });
                     ui.label(egui::RichText::new("The paper and colour apply to this page only.").small().color(t.muted));
-                    ui.separator();
-                    ui.add_enabled(false, egui::Label::new(egui::RichText::new("Rule line colour (not built)").color(t.muted)));
+                    if SHOW_UNBUILT {
+                        ui.separator();
+                        ui.add_enabled(false, egui::Label::new(egui::RichText::new("Rule line colour (not built)").color(t.muted)));
+                    }
                 });
             })
             .response;
@@ -2147,7 +2167,9 @@ fn modify_tool(ui: &mut Ui, id: egui::Id, under: Rect, i: usize, nib: Nib, rack_
                         done = true;
                     }
                 }
-                popup_action_button(ui, "Eyedropper", false, t.accent, "The eyedropper is not built yet");
+                if SHOW_UNBUILT {
+                    popup_action_button(ui, "Eyedropper", false, t.accent, "The eyedropper is not built yet");
+                }
                 if popup_action_button(ui, "Delete Tool", rack_len > 1, t.warn, "Remove this tool from the rack").clicked() {
                     acts.push(Act::InkRack(RackEdit::Remove(i)));
                     done = true;
@@ -2397,6 +2419,9 @@ fn shape_button(ui: &mut Ui, shape: notecraft_ink::shapes::Shape, here: bool, t:
 }
 
 fn soon(ui: &mut Ui, icon: Icon, label: &str, t: &Tokens) {
+    if !SHOW_UNBUILT {
+        return;
+    }
     let dim = Tokens { accent: t.muted, text: t.muted, ..*t };
     let resp = ui.add_enabled_ui(false, |ui| big(ui, icon, label, "Not built yet", &dim)).inner;
     resp.on_hover_text(format!("{label}: not built yet"));
@@ -2405,15 +2430,19 @@ fn soon(ui: &mut Ui, icon: Icon, label: &str, t: &Tokens) {
 /// OneNote's History tab, with the same groups and controls. NoteCraft does not yet keep
 /// unread flags or authors, so those controls are visible but disabled.
 fn history_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
-    group(ui, "Unread", t, |ui| {
-        soon(ui, Icon::PageStack, "Next\nUnread", t);
-        soon(ui, Icon::Todo, "Mark as\nRead", t);
-    });
-    group(ui, "Authors", t, |ui| {
-        soon(ui, Icon::Clock, "Recent\nEdits", t);
-        soon(ui, Icon::Search, "Find by\nAuthor", t);
-        soon(ui, Icon::Page, "Hide\nAuthors", t);
-    });
+    if SHOW_UNBUILT {
+        group(ui, "Unread", t, |ui| {
+            soon(ui, Icon::PageStack, "Next\nUnread", t);
+            soon(ui, Icon::Todo, "Mark as\nRead", t);
+        });
+    }
+    if SHOW_UNBUILT {
+        group(ui, "Authors", t, |ui| {
+            soon(ui, Icon::Clock, "Recent\nEdits", t);
+            soon(ui, Icon::Search, "Find by\nAuthor", t);
+            soon(ui, Icon::Page, "Hide\nAuthors", t);
+        });
+    }
     group(ui, "History", t, |ui| {
         if ui
             .add_enabled_ui(view.has_page, |ui| big(ui, Icon::PageStack, "Page\nVersions", "See and restore saved copies of this page", t))
@@ -2496,18 +2525,22 @@ Select",
         add_menu(ui, t, acts);
         sensitivity(ui, view.sensitivity, view.pressure_available, t, acts);
     });
-    group(ui, "Input Mode", t, |ui| {
-        soon(
-            ui,
-            Icon::Hand,
-            "Panning
-Hand",
-            t,
-        );
-    });
-    group(ui, "Stencils", t, |ui| {
-        soon(ui, Icon::Ruler, "Ruler", t);
-    });
+    if SHOW_UNBUILT {
+        group(ui, "Input Mode", t, |ui| {
+            soon(
+                ui,
+                Icon::Hand,
+                "Panning
+    Hand",
+                t,
+            );
+        });
+    }
+    if SHOW_UNBUILT {
+        group(ui, "Stencils", t, |ui| {
+            soon(ui, Icon::Ruler, "Ruler", t);
+        });
+    }
     group(ui, "Edit", t, |ui| {
         if big(ui, Icon::Pen, "Draw\nhere", "Put a sheet to draw on into the page", t).clicked() {
             acts.push(Act::InkInsert);
@@ -2527,56 +2560,66 @@ Space",
         rule_lines_menu(ui, view, t, acts);
     });
     shapes_group(ui, view, t, acts);
-    group(ui, "Shapes", t, |ui| {
-        soon(
-            ui,
-            Icon::Shapes,
-            "Automatic
-Shapes",
-            t,
-        );
-    });
-    group(ui, "Text", t, |ui| {
-        soon(
-            ui,
-            Icon::InkToText,
-            "Ink to
-Text",
-            t,
-        );
-    });
-    group(ui, "Math", t, |ui| {
-        soon(
-            ui,
-            Icon::Equation,
-            "Ink to
-Math",
-            t,
-        );
-    });
-    group(ui, "Replay", t, |ui| {
-        soon(
-            ui,
-            Icon::Replay,
-            "Ink
-Replay",
-            t,
-        );
-    });
+    if SHOW_UNBUILT {
+        group(ui, "Shapes", t, |ui| {
+            soon(
+                ui,
+                Icon::Shapes,
+                "Automatic
+    Shapes",
+                t,
+            );
+        });
+    }
+    if SHOW_UNBUILT {
+        group(ui, "Text", t, |ui| {
+            soon(
+                ui,
+                Icon::InkToText,
+                "Ink to
+    Text",
+                t,
+            );
+        });
+    }
+    if SHOW_UNBUILT {
+        group(ui, "Math", t, |ui| {
+            soon(
+                ui,
+                Icon::Equation,
+                "Ink to
+    Math",
+                t,
+            );
+        });
+    }
+    if SHOW_UNBUILT {
+        group(ui, "Replay", t, |ui| {
+            soon(
+                ui,
+                Icon::Replay,
+                "Ink
+    Replay",
+                t,
+            );
+        });
+    }
     group(ui, "Mode", t, |ui| {
         if big(ui, Icon::FullPage, "Full Page\nView", "Hide everything but the page", t).clicked() {
             acts.push(Act::ToggleFullPage);
         }
     });
-    group(ui, "Help", t, |ui| {
-        soon(
-            ui,
-            Icon::Help,
-            "Ink
-Help",
-            t,
-        );
-    });
+    if SHOW_UNBUILT {
+        group(ui, "Help", t, |ui| {
+            soon(
+                ui,
+                Icon::Help,
+                "Ink
+    Help",
+                t,
+            );
+        });
+    }
 }
 
 /// OneNote's Table tab, which appears while the caret is in a table. What NoteCraft can
@@ -2618,10 +2661,12 @@ fn table_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
             acts.push(Act::Table(E::InsertColumn(false)));
         }
     });
-    group(ui, "Merge", t, |ui| {
-        soon(ui, Icon::Table, "Merge\nCells", t);
-        soon(ui, Icon::Table, "Split\nCells", t);
-    });
+    if SHOW_UNBUILT {
+        group(ui, "Merge", t, |ui| {
+            soon(ui, Icon::Table, "Merge\nCells", t);
+            soon(ui, Icon::Table, "Split\nCells", t);
+        });
+    }
     group(ui, "Format", t, |ui| {
         // One button that says what it will do, the way OneNote's does: it reads Hide
         // Borders while they are drawn, and Show Borders once they are not.
@@ -2633,14 +2678,18 @@ fn table_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
         }
         soon(ui, Icon::Picture, "Shading", t);
     });
-    group(ui, "Alignment", t, |ui| {
-        soon(ui, Icon::DirLtr, "Align\nLeft", t);
-        soon(ui, Icon::DirLtr, "Center", t);
-        soon(ui, Icon::DirRtl, "Align\nRight", t);
-    });
-    group(ui, "Data", t, |ui| {
-        soon(ui, Icon::ListNumber, "Sort", t);
-    });
+    if SHOW_UNBUILT {
+        group(ui, "Alignment", t, |ui| {
+            soon(ui, Icon::DirLtr, "Align\nLeft", t);
+            soon(ui, Icon::DirLtr, "Center", t);
+            soon(ui, Icon::DirRtl, "Align\nRight", t);
+        });
+    }
+    if SHOW_UNBUILT {
+        group(ui, "Data", t, |ui| {
+            soon(ui, Icon::ListNumber, "Sort", t);
+        });
+    }
     group(ui, "Convert", t, |ui| {
         // Where OneNote converts a table to an Excel spreadsheet, NoteCraft hands it to
         // GridCraft, the open spreadsheet from the same workshop. Greyed when GridCraft
@@ -2773,6 +2822,9 @@ view",
 /// greyed chip the size of a control rather than as a line of writing, so a row of them
 /// reads as buttons that are off and not as a paragraph.
 fn not_built(ui: &mut Ui, label: &str, t: &Tokens) {
+    if !SHOW_UNBUILT {
+        return;
+    }
     let font = egui::FontId::proportional(10.5);
     let width = ui.painter().layout_no_wrap(label.to_string(), font.clone(), t.muted).size().x + 12.0;
     let (rect, resp) = ui.allocate_exact_size(vec2(width, SMALL_H), Sense::hover());
