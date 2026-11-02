@@ -41,6 +41,7 @@ const LAYERS: &[(&str, u8)] = &[
     ("notecraft-formats", 1),
     ("notecraft-text", 1),
     ("notecraft-store", 2),
+    ("notecraft-sync", 2),
     ("notecraft-import", 3),
     ("notecraft-engine", 4),
     ("notecraft-mcp", 5),

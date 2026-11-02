@@ -1,0 +1,21 @@
+[package]
+name = "notecraft-sync"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "NoteCraft sync: the notebooks folder as a Git repository, pushed to and pulled from a remote with a username and token"
+
+[lints]
+workspace = true
+
+[dependencies]
+# libgit2, not the `git` program: Android has none. Only HTTPS is wanted, with a token; there is
+# no SSH. It uses the system's TLS (OpenSSL on Linux, Schannel on Windows, Secure Transport on macOS).
+git2 = { version = "0.21", default-features = false, features = ["https"] }
+log = { workspace = true }
+
+# Android has no system OpenSSL to link: it is built from source (needs perl with Time::Piece).
+[target.'cfg(target_os = "android")'.dependencies]
+git2 = { version = "0.21", default-features = false, features = ["https", "vendored-openssl"] }
