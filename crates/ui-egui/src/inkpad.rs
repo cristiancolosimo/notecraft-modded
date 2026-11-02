@@ -74,6 +74,33 @@ pub fn is_old_sheet(src: &str) -> bool {
 pub const SHEET_W: f32 = 820.0;
 pub const SHEET_H: f32 = 1100.0;
 
+/// The pen's points in this frame's events, oldest first, each with its pressure. A touch with a
+/// force is a pen (the window layer sends the in-between samples of a frame as touches of their
+/// own); with none, the mouse's moves are used, at `fallback` pressure. Two samples in the same
+/// place are one.
+pub fn pen_samples(events: &[egui::Event], fallback: f32) -> Vec<(egui::Pos2, f32)> {
+    let mut pen: Vec<(egui::Pos2, f32)> = events
+        .iter()
+        .filter_map(|e| match e {
+            egui::Event::Touch { pos, force: Some(f), phase: egui::TouchPhase::Start | egui::TouchPhase::Move, .. } if f.is_finite() => {
+                Some((*pos, f.clamp(0.0, 1.0)))
+            }
+            _ => None,
+        })
+        .collect();
+    if pen.is_empty() {
+        pen = events
+            .iter()
+            .filter_map(|e| match e {
+                egui::Event::PointerMoved(pos) => Some((*pos, fallback)),
+                _ => None,
+            })
+            .collect();
+    }
+    pen.dedup_by(|a, b| a.0 == b.0);
+    pen
+}
+
 /// How close to the right edge of the column ink has to come before the page grows sideways.
 const EDGE: f32 = 120.0;
 
@@ -323,8 +350,19 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
                 if pad.drawing_now.is_none() {
                     pad.drawing_now = Some(Stroke::with_gain(pen.tool, pen.colour, pen.width, pen.gain));
                 }
-                if let (Some(stroke), Some((x, y))) = (pad.drawing_now.as_mut(), at) {
-                    stroke.add(Dab::new(x, y, pressure));
+                // Every sample the pen gave since the last frame, not only the latest: a pen
+                // reports several hundred times a second and a frame is a sixtieth of one, so
+                // one point a frame draws a coarse line that trails behind the pen.
+                let samples = ui.input(|i| pen_samples(&i.events, pressure));
+                if let Some(stroke) = pad.drawing_now.as_mut() {
+                    if samples.is_empty()
+                        && let Some((x, y)) = at
+                    {
+                        stroke.add(Dab::new(x, y, pressure));
+                    }
+                    for (point, force) in samples {
+                        stroke.add(Dab::new((point.x - body.min.x) / zoom, (point.y - body.min.y) / zoom, force));
+                    }
                     // The stroke is painted as it grows, so the line follows the pen
                     // rather than appearing when it is lifted.
                     ui.ctx().request_repaint();
@@ -595,5 +633,37 @@ mod tests {
         let text = std::fs::read_to_string(page.join(FILE)).expect("file");
         assert!(text.contains("viewBox=\"0 0 3"), "the sheet the file declares covers the ink: {}", &text[..text.len().min(300)]);
         assert!(Pad::of_page(&page).far().0 >= 3000.0, "and it comes back");
+    }
+
+    fn touch(x: f32, force: Option<f32>, phase: egui::TouchPhase) -> egui::Event {
+        egui::Event::Touch { device_id: egui::TouchDeviceId(0), id: egui::TouchId(0), phase, pos: egui::pos2(x, 10.0), force }
+    }
+
+    #[test]
+    fn every_sample_of_the_pen_in_a_frame_is_drawn_not_just_the_last() {
+        use egui::TouchPhase::{End, Move, Start};
+        let frame = [
+            touch(10.0, Some(0.2), Start),
+            egui::Event::PointerMoved(egui::pos2(10.0, 10.0)),
+            touch(12.0, Some(0.4), Move),
+            touch(12.0, Some(0.4), Move),
+            touch(15.0, Some(0.9), Move),
+            egui::Event::PointerMoved(egui::pos2(15.0, 10.0)),
+            touch(16.0, Some(0.1), End),
+        ];
+        let got = pen_samples(&frame, 1.0);
+        let xs: Vec<f32> = got.iter().map(|(p, _)| p.x).collect();
+        assert_eq!(xs, [10.0, 12.0, 15.0], "in order, a repeat is one, and the lift is not a point");
+        assert_eq!(got[2].1, 0.9, "each with its own pressure");
+    }
+
+    #[test]
+    fn a_mouse_and_a_touch_without_force_draw_at_full_pressure() {
+        let mouse = [egui::Event::PointerMoved(egui::pos2(5.0, 5.0)), egui::Event::PointerMoved(egui::pos2(6.0, 5.0))];
+        assert_eq!(pen_samples(&mouse, 1.0).len(), 2);
+        assert!(pen_samples(&mouse, 1.0).iter().all(|(_, f)| *f == 1.0));
+        let finger = [touch(5.0, None, egui::TouchPhase::Move)];
+        assert!(pen_samples(&finger, 1.0).is_empty(), "a finger is not a pen's sample");
+        assert!(pen_samples(&[touch(5.0, Some(f32::NAN), egui::TouchPhase::Move)], 1.0).is_empty(), "junk is dropped");
     }
 }

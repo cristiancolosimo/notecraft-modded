@@ -110,7 +110,9 @@ fn android_main(app: AndroidApp) {
         Err(_) => Box::new(notecraft_ui_egui::clipboard::Unavailable),
     };
     let app_handle = app.clone();
-    let options = eframe::NativeOptions { android_app: Some(app.clone()), ..Default::default() };
+    // Low latency: one frame queued ahead at most, so the ink follows the pen more closely.
+    let mut options = eframe::NativeOptions { android_app: Some(app.clone()), ..Default::default() };
+    options.wgpu_options.surface = eframe::egui_wgpu::SurfaceConfig::LOW_LATENCY;
     let result = eframe::run_native(
         "NoteCraft",
         options,

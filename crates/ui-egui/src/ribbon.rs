@@ -544,6 +544,21 @@ pub fn quick_draw_bar(ui: &mut Ui, view: &View<'_>, t: &Tokens) -> Vec<Act> {
                     acts.push(Act::InkPen(i));
                 }
             }
+            divider(ui, t);
+            // The paper under the page: none, lines or squares, and a page colour. A grid is
+            // what makes handwriting and diagrams come out straight, so it is one press away.
+            let on = view.rules != RuleLines::None;
+            let paper = chip(ui, "Paper", "Lines, squares or no paper behind the page", on, t, |p, r| {
+                let g = egui::Rect::from_center_size(r.center(), vec2(22.0, 22.0));
+                let line = egui::Stroke::new(1.3, t.text);
+                p.rect_stroke(g, 2.0, line, egui::StrokeKind::Inside);
+                for k in 1..3 {
+                    let f = k as f32 / 3.0;
+                    p.line_segment([egui::pos2(g.min.x + g.width() * f, g.min.y), egui::pos2(g.min.x + g.width() * f, g.max.y)], line);
+                    p.line_segment([egui::pos2(g.min.x, g.min.y + g.height() * f), egui::pos2(g.max.x, g.min.y + g.height() * f)], line);
+                }
+            });
+            paper_popup(ui, &paper, egui::Id::new("quick-bar-paper"), view, t, &mut acts);
             ui.add_space(6.0);
         });
     });
@@ -1635,16 +1650,23 @@ fn table_menu(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
 /// OneNote's Rule Lines button: the paper now, and a gallery of every paper under it.
 fn rule_lines_menu(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
     let open_id = egui::Id::new("ribbon-rule-lines");
-    let mut open = ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false));
+    let open = ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false));
     let resp = big_inner(ui, Icon::Ruler, "Format\nBackground", "Lines or squares behind the page, as on paper", true, open, t);
-    if resp.clicked() {
+    paper_popup(ui, &resp, open_id, view, t, acts);
+}
+
+/// The gallery of papers and page colours, opened under `anchor` when it is pressed and closed by
+/// a choice, a press elsewhere or Escape. Used by the ribbon's Format Background and the quick bar.
+fn paper_popup(ui: &mut Ui, anchor: &egui::Response, open_id: egui::Id, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
+    let mut open = ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false));
+    if anchor.clicked() {
         open = !open;
     }
     if open {
         let mut picked = false;
         let area = egui::Area::new(open_id.with("area"))
             .order(egui::Order::Foreground)
-            .fixed_pos(resp.rect.left_bottom())
+            .fixed_pos(anchor.rect.left_bottom())
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).corner_radius(8.0).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
                     ui.spacing_mut().item_spacing = vec2(8.0, 5.0);
@@ -1686,7 +1708,7 @@ fn rule_lines_menu(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>
                 });
             })
             .response;
-        let clicked_away = ui.input(|i| i.pointer.any_click()) && !area.rect.contains(tap_pos(ui)) && !resp.clicked();
+        let clicked_away = ui.input(|i| i.pointer.any_click()) && !area.rect.contains(tap_pos(ui)) && !anchor.clicked();
         if picked || clicked_away || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             open = false;
         }

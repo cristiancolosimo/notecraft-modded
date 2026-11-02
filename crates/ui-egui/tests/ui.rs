@@ -4756,6 +4756,14 @@ fn full_page_view_swaps_the_ribbon_for_a_quick_draw_bar() {
     assert_eq!(ink["colour"].as_str(), Some("#d02121"), "the red pen is in hand: {ink}");
     assert_eq!(ink["pointer"].as_str(), Some("draw"));
 
+    // The paper is one press away: a grid for straight handwriting and diagrams.
+    assert_eq!(look_at(&mut h)["paper"], json!("none"), "no paper to begin with");
+    h.get_by_label("Paper").click();
+    settle(&mut h);
+    h.get_by_label("College ruled").click();
+    settle(&mut h);
+    assert_eq!(look_at(&mut h)["paper"], json!("college"), "the paper chosen on the quick bar is the page's");
+
     h.get_by_label("Exit full page").click();
     settle(&mut h);
     assert_eq!(h.query_all_by_label("Exit full page").count(), 0, "the bar goes away again");

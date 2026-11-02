@@ -410,6 +410,34 @@ impl<T: 'static> EventLoop<T> {
                             "Input event {device_id:?}, {phase:?}, loc={location:?}, \
                              pointer={pointer:?}"
                         );
+                        // NoteCraft: Android hands over the touches of a whole frame at once, the
+                        // latest as the event and the ones between as its history. A pen draws at a
+                        // few hundred samples a second, so dropping the history leaves a coarse line.
+                        // Each historical sample of a stylus goes out as a move of its own, oldest first.
+                        if phase == event::TouchPhase::Moved
+                            && matches!(
+                                pointer.tool_type(),
+                                android_activity::input::ToolType::Stylus
+                                    | android_activity::input::ToolType::Eraser
+                            )
+                        {
+                            for old in pointer.history() {
+                                let event = event::Event::WindowEvent {
+                                    window_id,
+                                    event: event::WindowEvent::Touch(event::Touch {
+                                        device_id,
+                                        phase,
+                                        location: PhysicalPosition {
+                                            x: old.axis_value(android_activity::input::Axis::X) as _,
+                                            y: old.axis_value(android_activity::input::Axis::Y) as _,
+                                        },
+                                        id: pointer.pointer_id() as u64,
+                                        force: Some(Force::Normalized(old.pressure() as f64)),
+                                    }),
+                                };
+                                callback(event, self.window_target());
+                            }
+                        }
                         let event = event::Event::WindowEvent {
                             window_id,
                             event: event::WindowEvent::Touch(event::Touch {

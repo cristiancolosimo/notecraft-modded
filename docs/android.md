@@ -46,6 +46,20 @@ A finger drag on a drawing page or on the ribbon keeps coasting after the finger
 to a stop (`kinetic.rs`); a touch of the glass catches it. The lists beside the page use egui's
 own touch scrolling. In Type mode a finger drag over text selects it, as before.
 
+## Direct drawing
+
+The pen draws every sample it reports, not one point a frame. Android hands over the touches of a
+whole frame at once (the latest as the event, the ones before it as its history); `vendor/winit`
+sends each historical sample of a stylus as a move of its own, and the ink layer
+(`inkpad::pen_samples`) adds a point for each, with its own pressure. The surface is set to low
+latency (one frame queued at most). The in-progress stroke is painted as it grows.
+
+## Paper
+
+Full page view has a Paper button on the quick bar: no paper, rules, squares in four sizes,
+NoteCraft's own with every fifth line stronger, and a page colour. It is the same gallery as
+Draw, Format Background, one press away while taking notes.
+
 ## Performance counter
 
 File, Options, "Show the performance counter" puts a small readout at the top right: frames a
