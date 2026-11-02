@@ -1,0 +1,57 @@
+[package]
+name = "notecraft-android"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "NoteCraft for Android: the same window over the same engine, started from a NativeActivity"
+
+# Not `workspace = true`: the workspace forbids unsafe code, and the one thing Android needs
+# is `#[unsafe(no_mangle)]` on the entry point.
+[lints.rust]
+unsafe_code = "allow"
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+
+# Android loads the app as a shared library and calls `android_main`.
+[lib]
+crate-type = ["cdylib"]
+
+# Only built for Android: eframe's `accesskit` default cannot be combined with the
+# NativeActivity, so this app names its own eframe features, and the desktop build and the
+# workspace's `--workspace` runs never see them.
+[target.'cfg(target_os = "android")'.dependencies]
+notecraft-engine = { workspace = true }
+notecraft-store = { workspace = true }
+notecraft-ui-egui = { workspace = true }
+eframe = { version = "0.36", default-features = false, features = ["android-native-activity", "default_fonts", "wgpu"] }
+egui = { workspace = true }
+log = { workspace = true }
+android-activity = { version = "0.6", features = ["native-activity"] }
+android_logger = "0.15"
+
+# Built with `cargo xtask android` (cargo-apk underneath). The stylus is read through the
+# touch force that winit reports for every contact, see crates/ui-egui/src/stylus.rs.
+[package.metadata.android]
+package = "com.alientechsoftware.notecraft"
+apk_name = "NoteCraft"
+build_targets = ["aarch64-linux-android"]
+resources = "res"
+
+[package.metadata.android.sdk]
+min_sdk_version = 26
+target_sdk_version = 35
+
+[package.metadata.android.application]
+label = "NoteCraft"
+icon = "@mipmap/ic_launcher"
+
+[package.metadata.android.application.activity]
+config_changes = "orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode|density"
+window_soft_input_mode = "adjustResize"
+
+[[package.metadata.android.uses_feature]]
+name = "android.hardware.touchscreen"
+required = true

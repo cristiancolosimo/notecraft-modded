@@ -23,11 +23,9 @@ notecraft-import = { workspace = true }
 egui = { workspace = true }
 egui_extras = { workspace = true }
 notecraft-diagram = { workspace = true }
-rfd = { workspace = true }
 image = { workspace = true }
 hayro = { workspace = true }
 log = { workspace = true }
-arboard = { workspace = true }
 serde_json = { workspace = true }
 zip = { workspace = true }
 # SystemTime::now()/Instant::now() panic on wasm32-unknown-unknown; see the workspace Cargo.toml.
@@ -40,3 +38,12 @@ egui-wgpu = "0.36"
 
 
 
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+rfd = { workspace = true }
+arboard = { workspace = true }
+
+# rfd and arboard have no Android backend: these stand-ins keep the same calls compiling.
+[target.'cfg(target_os = "android")'.dependencies]
+rfd_android = { package = "notecraft-rfd-android-stub", path = "../../vendor/rfd-android-stub" }
+arboard_android = { package = "notecraft-arboard-android-stub", path = "../../vendor/arboard-android-stub" }

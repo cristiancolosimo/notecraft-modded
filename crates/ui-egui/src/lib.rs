@@ -8,6 +8,12 @@
 //! The crate depends on `egui` only. The window itself (eframe) lives in the app
 //! crate, so this crate can also be driven headlessly in tests.
 
+// rfd and arboard have no Android backend; the stand-ins answer to the same names there.
+#[cfg(target_os = "android")]
+extern crate arboard_android as arboard;
+#[cfg(target_os = "android")]
+extern crate rfd_android as rfd;
+
 pub mod app;
 pub mod backstage;
 pub mod bidi;

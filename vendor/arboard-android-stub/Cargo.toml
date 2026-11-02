@@ -1,0 +1,10 @@
+[package]
+name = "notecraft-arboard-android-stub"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Android stand-in for the arboard clipboard calls NoteCraft makes; every call reports it is unsupported"
+
+[lib]
+name = "arboard"

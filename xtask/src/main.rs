@@ -47,6 +47,7 @@ const LAYERS: &[(&str, u8)] = &[
     ("notecraft-ui-egui", 6),
     ("notecraft", 7),
     ("notecraft-cli", 7),
+    ("notecraft-android", 7),
     ("xtask", 7),
     ("notecraft-demo", 7),
 ];
@@ -64,6 +65,34 @@ fn cargo(root: &Path, args: &[&str]) -> Result<(), String> {
     println!("$ cargo {}", args.join(" "));
     let status = Command::new("cargo").args(args).current_dir(root).status().map_err(|e| format!("cannot run cargo: {e}"))?;
     if status.success() { Ok(()) } else { Err(format!("cargo {} failed", args.first().copied().unwrap_or(""))) }
+}
+
+/// The Android APK: `cargo apk` in apps/notecraft-android, with the SDK and NDK found from
+/// `ANDROID_HOME` and `ANDROID_NDK_HOME` (or `~/Android/Sdk`). Extra options go to `cargo apk build`.
+fn android(root: &Path, options: &[String]) -> Result<(), String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let sdk = std::env::var_os("ANDROID_HOME").map(PathBuf::from).unwrap_or_else(|| home.join("Android").join("Sdk"));
+    let ndk = std::env::var_os("ANDROID_NDK_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::fs::read_dir(sdk.join("ndk")).ok()?.filter_map(Result::ok).map(|e| e.path()).max());
+    let ndk = ndk.ok_or("no Android NDK: set ANDROID_NDK_HOME or install one under $ANDROID_HOME/ndk")?;
+    let args = if options.is_empty() { vec!["--release".to_string()] } else { options.to_vec() };
+    println!("$ cargo apk build {}", args.join(" "));
+    // Test builds are signed with the Android debug key so they can be sideloaded; a store
+    // release sets CARGO_APK_RELEASE_KEYSTORE and its password itself.
+    let debug_key = home.join(".android").join("debug.keystore");
+    let signing = [("CARGO_APK_RELEASE_KEYSTORE", debug_key.into_os_string()), ("CARGO_APK_RELEASE_KEYSTORE_PASSWORD", "android".into())];
+    let status = Command::new("cargo")
+        .envs(signing.into_iter().filter(|(name, _)| std::env::var_os(name).is_none()))
+        .args(["apk", "build"])
+        .args(&args)
+        .env("ANDROID_HOME", &sdk)
+        .env("ANDROID_SDK_ROOT", &sdk)
+        .env("ANDROID_NDK_HOME", &ndk)
+        .current_dir(root.join("apps").join("notecraft-android"))
+        .status()
+        .map_err(|e| format!("cannot run cargo apk (cargo install cargo-apk): {e}"))?;
+    if status.success() { Ok(()) } else { Err("cargo apk build failed".into()) }
 }
 
 /// The dependency names listed in the `[dependencies]` table of a Cargo.toml (not dev or build).
@@ -477,6 +506,7 @@ fn run(task: &str, options: &[String]) -> Result<(), String> {
             text(&root, fix)
         }
         "screenshots" => screenshots(&root),
+        "android" => android(&root, options),
         "coverage" => coverage::run(&root, options),
         "check-branch" => quality::check_branch(&root, options),
         "commit-msg" => match options {
