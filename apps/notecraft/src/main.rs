@@ -4,7 +4,8 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 //! NoteCraft desktop app: a native window over the engine.
 //!
-//! Usage: `notecraft [PATH] [--notebooks FOLDER] [--open PATH] [--expand-all] [--control PORT]`. The notebooks folder defaults to the
+//! Usage: `notecraft [PATH] [--notebooks FOLDER] [--open PATH] [--expand-all] [--control PORT]`, or
+//! `notecraft --mcp [--notebooks FOLDER | --connect PORT]` to serve MCP on stdio with no window. The notebooks folder defaults to the
 //! `NOTECRAFT_NOTEBOOKS` environment variable, then `Documents/NoteCraft` in the home folder.
 //! PATH is a notebook, section group, section or page, relative to the notebooks folder or a
 //! full path; anything but a page opens on its first page. A notebook kept elsewhere is opened.
@@ -63,7 +64,7 @@ fn flag_value(args: &[String], name: &str) -> Option<String> {
 }
 
 /// Flags that take the word after them.
-const VALUE_FLAGS: [&str; 3] = ["--notebooks", "--open", "--control"];
+const VALUE_FLAGS: [&str; 4] = ["--notebooks", "--open", "--control", "--connect"];
 
 /// What to open: `--open PATH`, or else the first word that is neither a flag nor a flag's
 /// value, so `notecraft D:\Notes\Work` and a file manager's "Open with" both work.
@@ -103,8 +104,42 @@ fn fail(message: &str) -> ! {
     std::process::exit(1);
 }
 
+/// `--mcp`: serve the Model Context Protocol on stdin and stdout instead of opening a window, so
+/// the one program a Linux package ships is also the MCP server. `--connect PORT` drives a
+/// running window instead of opening the notebooks folder (see docs/mcp.md). Never returns.
+fn serve_mcp(args: &[String]) -> ! {
+    use notecraft_mcp::{Backend, Headless, Remote, key_dir, serve};
+    // Nothing may be written to stdout but protocol replies, so no log or banner is set up first.
+    let settings = Settings::default_location();
+    let backend: Result<Box<dyn Backend>, String> = match flag_value(args, "--connect") {
+        Some(target) => match target.rsplit(':').next().unwrap_or(&target).trim().parse::<u16>() {
+            Ok(port) => Remote::connect(port, &key_dir(&settings)).map(|r| Box::new(r) as Box<dyn Backend>),
+            Err(_) => Err(format!("'{target}' is not a port")),
+        },
+        None => Headless::open(&notebooks_dir(args), settings).map(|h| Box::new(h) as Box<dyn Backend>),
+    };
+    let mut backend = match backend {
+        Ok(backend) => backend,
+        Err(e) => {
+            eprintln!("notecraft --mcp: {e}");
+            std::process::exit(1);
+        }
+    };
+    let (input, output) = (std::io::stdin(), std::io::stdout());
+    match serve(backend.as_mut(), input.lock(), output.lock()) {
+        Ok(()) => std::process::exit(0),
+        Err(e) => {
+            eprintln!("notecraft --mcp: the connection to the client ended: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
 fn main() -> eframe::Result {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|a| a == "--mcp") {
+        serve_mcp(&args);
+    }
     let settings_dir = Settings::default_location().path().parent().map(std::path::Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
     let telemetry_level =
         Settings::default_location().get("telemetry_level").as_deref().and_then(telemetry::Level::parse).unwrap_or_else(telemetry::Level::for_build);
@@ -266,6 +301,9 @@ mod tests {
         assert_eq!(open_arg(&a(&["--notebooks", "root", "--expand-all", "nb"])).as_deref(), Some("nb"));
         assert_eq!(open_arg(&a(&["--control", "0", "--notebooks", "root"])), None);
         assert_eq!(open_arg(&a(&[])), None);
+        // The MCP switches are not a page to open.
+        assert_eq!(open_arg(&a(&["--mcp", "--connect", "54321"])), None);
+        assert_eq!(open_arg(&a(&["--mcp", "--notebooks", "root"])), None);
     }
 
     #[test]

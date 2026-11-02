@@ -45,6 +45,8 @@ pub enum Act {
     SyncSave(bool),
     /// Show or hide the performance counter.
     SetShowPerf(bool),
+    /// Cap the frame rate (0 for no cap).
+    SetFpsLimit(u32),
     /// Write this notebook to a ZIP.
     ExportNotebook(std::path::PathBuf),
     ResetPreferences,
@@ -87,6 +89,7 @@ pub fn show(
     session_id: Option<&str>,
     sync: &mut crate::syncing::Syncing,
     show_perf: bool,
+    fps_limit: u32,
     t: &Tokens,
 ) -> Vec<Act> {
     let mut acts = Vec::new();
@@ -102,7 +105,7 @@ pub fn show(
                     "Sync" => sync_page(ui, sync, t, &mut acts),
                     "Export" => export_page(ui, notebooks, show_path, t, &mut acts),
                     "About" => about_page(ui, telemetry_root, session_id, t),
-                    "Options" => options_page(ui, telemetry_root, telemetry_level, session_id, show_perf, t, &mut acts),
+                    "Options" => options_page(ui, telemetry_root, telemetry_level, session_id, show_perf, fps_limit, t, &mut acts),
                     _ => info_page(ui, notebooks, notebooks_folder, show_path, t, &mut acts),
                 }
             });
@@ -494,7 +497,16 @@ fn about_page(ui: &mut Ui, telemetry_root: &std::path::Path, session_id: Option<
     ui.label(egui::RichText::new(format!("Logging folder: {}", telemetry_root.display())).strong().size(11.5).color(t.text));
 }
 
-fn options_page(ui: &mut Ui, root: &std::path::Path, level: &str, session_id: Option<&str>, show_perf: bool, t: &Tokens, acts: &mut Vec<Act>) {
+fn options_page(
+    ui: &mut Ui,
+    root: &std::path::Path,
+    level: &str,
+    session_id: Option<&str>,
+    show_perf: bool,
+    fps_limit: u32,
+    t: &Tokens,
+    acts: &mut Vec<Act>,
+) {
     heading(ui, "Options", t);
     ui.label(
         egui::RichText::new("Privacy is our top priority. Logs and telemetry stay on this device. NoteCraft does not send them to us.")
@@ -532,6 +544,28 @@ fn options_page(ui: &mut Ui, root: &std::path::Path, level: &str, session_id: Op
     });
     ui.add_space(12.0);
     ui.label(egui::RichText::new("Export creates a user-selected ZIP, then removes the exported session folder.").size(11.5).color(t.muted));
+    ui.add_space(18.0);
+    ui.separator();
+    ui.label(egui::RichText::new("Frame rate").strong().size(15.0).color(t.strong));
+    ui.label(
+        egui::RichText::new(
+            "Cap how many frames a second the window draws. A lower cap saves battery and heat; Off draws as fast as the screen allows.",
+        )
+        .size(11.5)
+        .color(t.muted),
+    );
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Limit:").strong());
+        let name = |n: u32| if n == 0 { "Off".to_string() } else { format!("{n} fps") };
+        egui::ComboBox::from_id_salt("fps-limit").selected_text(name(fps_limit)).show_ui(ui, |ui| {
+            for n in crate::perf::FPS_LIMITS {
+                if ui.selectable_label(fps_limit == n, name(n)).clicked() {
+                    acts.push(Act::SetFpsLimit(n));
+                    ui.close();
+                }
+            }
+        });
+    });
     ui.add_space(18.0);
     ui.separator();
     ui.label(egui::RichText::new("Performance counter").strong().size(15.0).color(t.strong));
@@ -588,6 +622,7 @@ mod tests {
                 None,
                 &mut crate::syncing::Syncing::load(&notecraft_store::Settings::at(std::env::temp_dir().join("notecraft-about-test.toml"))),
                 false,
+                0,
                 &t,
             );
         });

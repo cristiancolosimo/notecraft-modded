@@ -4838,6 +4838,27 @@ fn the_performance_counter_is_switched_in_options_and_remembered() {
     assert!(saved.contains("show_perf = \"false\""), "and the choice to turn it off: {saved}");
 }
 
+/// The frame rate cap is chosen in File, Options and remembered.
+#[test]
+fn the_frame_rate_cap_is_chosen_in_options_and_remembered() {
+    let (t, mut app, s) = sample_app("ui-fps-cap");
+    let settings = t.path().join("settings.toml");
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = sized_harness(app, LIGHT, egui::vec2(1400.0, 900.0));
+    settle(&mut h);
+    h.get_by_label("File").click();
+    settle(&mut h);
+    h.get_by_label("Options").click();
+    settle(&mut h);
+    // The second drop-down on the page (the first is the telemetry level).
+    h.query_all_by_role(egui::accesskit::Role::ComboBox).nth(1).expect("the frame rate drop-down").click();
+    settle(&mut h);
+    h.get_by_label("45 fps").click();
+    settle(&mut h);
+    let saved = std::fs::read_to_string(&settings).unwrap_or_default();
+    assert!(saved.contains("fps_limit = \"45\""), "the cap is written: {saved}");
+}
+
 /// A ribbon wider than the window scrolls: an arrow shows that more is beyond the edge, and
 /// pressing it brings the last group into view.
 #[test]

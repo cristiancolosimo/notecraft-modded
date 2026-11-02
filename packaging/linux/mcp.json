@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "notecraft": {
+      "command": "notecraft",
+      "args": ["--mcp"]
+    }
+  }
+}

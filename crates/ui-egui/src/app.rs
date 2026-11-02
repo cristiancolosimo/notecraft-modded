@@ -572,6 +572,9 @@ pub struct NoteCraftApp {
     /// The performance counter at the top right (File, Options).
     show_perf: bool,
     perf: crate::perf::Perf,
+    /// Frames a second the window may draw at most; 0 is no cap.
+    fps_limit: u32,
+    last_frame: Option<web_time::Instant>,
     /// Git sync: its form, its timer and what it last did.
     sync: crate::syncing::Syncing,
     /// A touch tablet: the keyboard switch shows, and the pen draws by default.
@@ -704,6 +707,8 @@ impl NoteCraftApp {
             media: None,
             show_perf: settings_for_sync.get("show_perf").as_deref() == Some("true"),
             perf: crate::perf::Perf::default(),
+            fps_limit: settings_for_sync.get("fps_limit").and_then(|v| v.parse().ok()).filter(|n| crate::perf::FPS_LIMITS.contains(n)).unwrap_or(0),
+            last_frame: None,
             soft_keyboard_blocked: false,
             page_rect: None,
             pointer: ribbon::Pointer::Write,
@@ -2035,6 +2040,7 @@ impl NoteCraftApp {
                 session_id.as_deref(),
                 &mut self.sync,
                 self.show_perf,
+                self.fps_limit,
                 &tokens,
             );
         });
@@ -2102,6 +2108,10 @@ impl NoteCraftApp {
                         self.sync.failed = true;
                     }
                 },
+                backstage::Act::SetFpsLimit(n) => {
+                    self.fps_limit = n;
+                    let _ = self.session.settings.set("fps_limit", &n.to_string());
+                }
                 backstage::Act::SetShowPerf(on) => {
                     self.show_perf = on;
                     let _ = self.session.settings.set("show_perf", if on { "true" } else { "false" });
@@ -5889,6 +5899,19 @@ impl NoteCraftApp {
     }
     /// Draws the whole window. Call once per frame.
     pub fn show(&mut self, ui: &mut Ui) {
+        // The frame cap: a frame is not started until enough time has gone since the last one.
+        // Not on the web, which cannot sleep.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let now = web_time::Instant::now();
+            if let Some(last) = self.last_frame {
+                let wait = crate::perf::wait_for(now.duration_since(last), self.fps_limit);
+                if !wait.is_zero() {
+                    std::thread::sleep(wait);
+                }
+            }
+            self.last_frame = Some(web_time::Instant::now());
+        }
         let area = ui.max_rect();
         self.show_window(ui);
         if self.show_perf {

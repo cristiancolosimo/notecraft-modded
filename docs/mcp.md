@@ -32,6 +32,27 @@ In a client's configuration file that looks like:
 }
 ```
 
+### On Linux: the app is the server
+
+The Linux packages ship one program, `notecraft`, so it serves MCP itself. The same server, the
+same tools, with no window:
+
+```bash
+notecraft --mcp                       # opens the notebooks folder itself
+notecraft --mcp --notebooks FOLDER    # another notebooks folder
+notecraft --mcp --connect 54321       # drives a running window (start it with --control 54321)
+```
+
+`--mcp` is read before anything else starts, so nothing but protocol replies reaches stdout;
+problems go to stderr and the exit status. A client configuration is installed as
+`/usr/share/doc/notecraft/mcp.json`:
+
+```json
+{ "mcpServers": { "notecraft": { "command": "notecraft", "args": ["--mcp"] } } }
+```
+
+On Windows the program has no console, so use `notecraft-cli mcp` there.
+
 ### Headless, or the running window
 
 | | `notecraft-cli mcp` | `notecraft-cli mcp --connect PORT` |

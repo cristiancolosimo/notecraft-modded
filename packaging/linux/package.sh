@@ -62,6 +62,8 @@ mkdir -p "$STAGE/usr/share/doc/notecraft"
 install -Dm644 "$ROOT/LICENSE-MIT" "$STAGE/usr/share/doc/notecraft/LICENSE-MIT"
 install -Dm644 "$ROOT/LICENSE-APACHE" "$STAGE/usr/share/doc/notecraft/LICENSE-APACHE"
 install -Dm644 "$ROOT/NOTICE" "$STAGE/usr/share/doc/notecraft/NOTICE"
+# The MCP server is the app itself (`notecraft --mcp`); this is the client configuration for it.
+install -Dm644 "$ROOT/packaging/linux/mcp.json" "$STAGE/usr/share/doc/notecraft/mcp.json"
 
 if has_format tar; then
     mkdir -p "$DIST/tar"

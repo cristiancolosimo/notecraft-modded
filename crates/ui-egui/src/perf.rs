@@ -92,6 +92,18 @@ impl Perf {
     }
 }
 
+/// The frame rates the owner can cap the window at, in frames a second. 0 is no cap.
+pub const FPS_LIMITS: [u32; 6] = [0, 30, 45, 60, 90, 120];
+
+/// How long to wait before drawing the next frame so frames are no closer together than
+/// `limit` allows: nothing when there is no cap, or when enough time has gone by already.
+pub fn wait_for(since_last_frame: Duration, limit: u32) -> Duration {
+    if limit == 0 {
+        return Duration::ZERO;
+    }
+    Duration::from_secs_f32(1.0 / limit as f32).saturating_sub(since_last_frame)
+}
+
 /// What the process is using.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Process {
@@ -146,6 +158,16 @@ pub fn parse_stat_ticks(text: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_frame_cap_waits_only_as_long_as_it_must() {
+        let ms = Duration::from_millis;
+        assert_eq!(wait_for(ms(1), 0), Duration::ZERO, "no cap, no wait");
+        assert!((wait_for(ms(5), 30).as_secs_f32() - (1.0 / 30.0 - 0.005)).abs() < 0.001, "30 a second leaves a 33 ms frame");
+        assert_eq!(wait_for(ms(40), 30), Duration::ZERO, "a frame that was already slow is not delayed");
+        assert!(wait_for(ms(0), 120) < ms(9) && wait_for(ms(0), 120) > ms(8));
+        assert_eq!(FPS_LIMITS, [0, 30, 45, 60, 90, 120]);
+    }
 
     #[test]
     fn the_status_file_gives_memory_and_threads() {
