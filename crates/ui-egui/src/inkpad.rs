@@ -74,6 +74,12 @@ pub fn is_old_sheet(src: &str) -> bool {
 pub const SHEET_W: f32 = 820.0;
 pub const SHEET_H: f32 = 1100.0;
 
+/// Whether a stroke can be on the screen: its box (the width of the line included) meets `visible`,
+/// in the page's own coordinates. A stroke with no readings is never drawn.
+pub fn may_show(stroke: &Stroke, visible: egui::Rect) -> bool {
+    stroke.bounds().is_some_and(|(x0, y0, x1, y1)| x1 >= visible.min.x && x0 <= visible.max.x && y1 >= visible.min.y && y0 <= visible.max.y)
+}
+
 /// The pen's points in this frame's events, oldest first, each with its pressure. A touch with a
 /// force is a pen (the window layer sends the in-between samples of a frame as touches of their
 /// own); with none, the mouse's moves are used, at `fallback` pressure. Two samples in the same
@@ -317,7 +323,17 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
     // Only what is on the screen: the canvas is larger than the window, and what is outside the
     // scroll area belongs to the ribbon and the panels around it.
     let painter = ui.ctx().layer_painter(ui.layer_id()).with_clip_rect(body.intersect(ui.clip_rect()));
+    // Only the strokes that can be seen are worked out: a page can hold thousands, and making the
+    // outline of each one every frame is the cost, not putting it on the screen.
+    let seen = painter.clip_rect();
+    let visible = egui::Rect::from_min_max(
+        egui::pos2((seen.min.x - body.min.x) / zoom, (seen.min.y - body.min.y) / zoom),
+        egui::pos2((seen.max.x - body.min.x) / zoom, (seen.max.y - body.min.y) / zoom),
+    );
     for stroke in pad.drawing.strokes.iter().chain(pad.drawing_now.iter()) {
+        if !crate::inkpad::may_show(stroke, visible) {
+            continue;
+        }
         let mut scaled = stroke.clone();
         scaled.width *= zoom;
         for dab in &mut scaled.dabs {
@@ -373,12 +389,30 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
     let down = ink_allowed && resp.is_pointer_button_down_on();
     // A finger on the ink layer scrolls the page, as it would anywhere else.
     // It keeps coasting after the finger lifts, and a touch of the glass catches it.
+    //
+    // A hand laid down to write touches the glass before the pen does, and for a moment looks like
+    // a finger dragging the page. What a finger has scrolled while it was still down is taken back
+    // when the system calls that touch off (a palm) or the pen lands: the page goes back where it was.
     {
-        let drag = (!ink_allowed && resp.dragged()).then(|| resp.drag_delta());
-        let moved = crate::kinetic::step(ui.ctx(), ui.id().with("ink-fling"), drag, crate::kinetic::both());
-        if moved != egui::Vec2::ZERO {
-            ui.scroll_with_delta_animation(moved, egui::style::ScrollAnimation::none());
+        let fling = ui.id().with("ink-fling");
+        let palm = ui.id().with("palm-guard");
+        let dragging = !ink_allowed && resp.dragged();
+        let called_off = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Touch { phase: egui::TouchPhase::Cancel, force: None, .. })));
+        let mut applied: egui::Vec2 = ui.data(|d| d.get_temp(palm)).unwrap_or_default();
+        if (ink_allowed || called_off) && applied != egui::Vec2::ZERO {
+            ui.scroll_with_delta_animation(-applied, egui::style::ScrollAnimation::none());
+            crate::kinetic::cancel(ui.ctx(), fling);
+            applied = egui::Vec2::ZERO;
+        } else {
+            let drag = dragging.then(|| resp.drag_delta());
+            let moved = crate::kinetic::step(ui.ctx(), fling, drag, crate::kinetic::both());
+            if moved != egui::Vec2::ZERO {
+                ui.scroll_with_delta_animation(moved, egui::style::ScrollAnimation::none());
+            }
+            // Only a drag still in progress can be taken back; coasting after a release is kept.
+            applied = if dragging { applied + moved } else { egui::Vec2::ZERO };
         }
+        ui.data_mut(|d| d.insert_temp(palm, applied));
     }
     let at = ui.ctx().pointer_interact_pos().filter(|p| body.contains(*p)).map(|p| ((p.x - body.min.x) / zoom, (p.y - body.min.y) / zoom));
     let mut changed = false;
@@ -731,5 +765,21 @@ mod tests {
         pad.drawing.add(stroke(90.0));
         assert!(!pad.can_redo(), "a new stroke replaced what could have come back");
         assert!(!pad.redo());
+    }
+
+    #[test]
+    fn only_strokes_that_meet_the_visible_part_of_the_page_are_drawn() {
+        let on_screen = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(800.0, 600.0));
+        assert!(may_show(&stroke(10.0), on_screen), "a stroke in view");
+        assert!(!may_show(&stroke(5000.0), on_screen), "one far to the right is skipped");
+        let mut below = stroke(10.0);
+        for d in &mut below.dabs {
+            d.y = 9000.0;
+        }
+        assert!(!may_show(&below, on_screen), "and one far below");
+        let mut edge = stroke(790.0);
+        edge.width = 40.0;
+        assert!(may_show(&edge, egui::Rect::from_min_max(egui::pos2(805.0, 0.0), egui::pos2(900.0, 600.0))), "its thick line reaches in");
+        assert!(!may_show(&Stroke::new(Tool::Pen, Rgb::BLACK, 3.0), on_screen), "a stroke with no readings has nothing to draw");
     }
 }

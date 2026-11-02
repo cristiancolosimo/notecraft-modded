@@ -85,6 +85,11 @@ pub fn step(ctx: &Context, id: Id, drag: Option<Vec2>, axes: Vec2) -> Vec2 {
     moved
 }
 
+/// Ends any coasting at once (a palm that turned out not to be a scroll).
+pub fn cancel(ctx: &Context, id: Id) {
+    ctx.data_mut(|d| d.insert_temp(id, Fling::default()));
+}
+
 /// A convenience for the common case of both axes.
 pub fn both() -> Vec2 {
     vec2(1.0, 1.0)

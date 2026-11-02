@@ -4380,13 +4380,16 @@ impl NoteCraftApp {
                     // The colour behind the words, and then the lines on it. Both are
                     // the page's own when it carries them, as OneNote's page colour and
                     // rule lines are the page's.
+                    // The page has no end down or to the right, so the paper has none either: it is
+                    // drawn over whatever part of the sheet is on the screen, numbered from the
+                    // sheet's own corner so it stays put as the page scrolls.
                     if wide && let Some(wash) = page_colour {
-                        let area = ui.max_rect();
-                        ui.painter_at(area).rect_filled(area, 0.0, wash);
+                        ui.painter().rect_filled(ui.clip_rect(), 0.0, wash);
                     }
                     if wide && rules.on() {
-                        let area = ui.max_rect();
-                        crate::ribbon::paint_paper(&ui.painter_at(area), area, rules, zoom_scale, tokens.rule_line, tokens.rule_line_strong);
+                        let corner = ui.max_rect().min;
+                        let sheet = egui::Rect::from_min_max(corner, egui::pos2(f32::INFINITY, f32::INFINITY));
+                        crate::ribbon::paint_paper(ui.painter(), sheet, rules, zoom_scale, tokens.rule_line, tokens.rule_line_strong);
                     }
                     // Which way lines fall when they say nothing themselves: the page's own
                     // direction, if the writer gave it one.

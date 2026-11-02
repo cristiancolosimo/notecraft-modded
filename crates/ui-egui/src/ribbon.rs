@@ -2920,6 +2920,25 @@ mod tests {
     }
 
     #[test]
+    fn the_paper_carries_on_however_far_down_and_across_the_page_is_scrolled() {
+        let ctx = egui::Context::default();
+        let line = egui::Color32::GRAY;
+        let sheet = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(f32::INFINITY, f32::INFINITY));
+        for (x, y) in [(0.0, 0.0), (0.0, 50_000.0), (30_000.0, 800.0), (30_000.0, 50_000.0)] {
+            let mut count = 0;
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let seen = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(400.0, 300.0));
+                let mut painter = ui.painter().clone();
+                painter.set_clip_rect(seen);
+                paint_paper(&painter, sheet, RuleLines::CraftGrid, 1.0, line, line);
+                count = ui.ctx().graphics_mut(|g| g.entry(ui.layer_id()).all_entries().count());
+            });
+            out.textures_delta.clear();
+            assert!(count > 0, "paper is drawn at ({x}, {y})");
+        }
+    }
+
+    #[test]
     fn paper_on_a_page_without_an_end_is_drawn_only_where_it_can_be_seen() {
         let ctx = egui::Context::default();
         let painter = ctx

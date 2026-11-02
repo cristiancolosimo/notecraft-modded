@@ -79,7 +79,12 @@ impl Stylus {
                 egui::Event::Touch { .. } => self.diagnostics.touch_events += 1,
                 _ => {}
             }
-            let egui::Event::Touch { phase, force, id, .. } = e else { continue };
+            let egui::Event::Touch { phase, force, id, device_id, .. } = e else { continue };
+            // Starts and cancellations only: enough to see, in the log, which device touched and
+            // whether it was a pen (a force) or a finger, without a line for every move.
+            if matches!(phase, egui::TouchPhase::Start | egui::TouchPhase::Cancel) {
+                log::debug!(target: "notecraft::stylus", "touch {phase:?} device={device_id:?} id={id:?} force={force:?}");
+            }
             self.last_event = if force.is_some() { "touch with force" } else { "touch without force" };
             if force.is_some() {
                 self.diagnostics.touch_with_force += 1;
