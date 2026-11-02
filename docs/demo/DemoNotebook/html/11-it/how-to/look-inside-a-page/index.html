@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Guardare dentro una pagina</title>
+<meta name="notecraft:id" content="f7eebdc4b57e23a9b601">
+<meta name="notecraft:order" content="75">
+<meta name="notecraft:created" content="2026-10-18T00:00:00Z">
+<meta name="notecraft:updated" content="2026-10-18T00:00:00Z">
+</head>
+<body>
+<p>Molte app di note tengono un intero quaderno in un solo file binario, e un editor di testo mostra solo rumore. Una pagina di NoteCraft è una cartella di file semplici, e la vista codice ti mostra quella cartella, file per file. Provalo ora: premi il pulsante <code>&lt; &gt;</code> accanto a questa pagina.</p>
+<h2>Cosa vedrai</h2>
+<p>A sinistra, <b>File di questa pagina</b>: prima il file della pagina, <code>index.md</code>, poi tutto il resto della cartella. Un file che nulla nella pagina usa è segnato <i>non usato dalla pagina</i>. A destra c'è il file che hai scelto. Questa è la pagina che stai leggendo, quindi il visualizzatore mostra il suo stesso testo.</p>
+<p>Il file della pagina è mostrato per intero: la sua <b>intestazione</b> (id, titolo, ordine, date e impostazioni della pagina) e sotto il <b>corpo</b>. Puoi modificare tutto. Premi di nuovo lo stesso pulsante per chiudere la vista, e la pagina viene ridisegnata da ciò che hai scritto.</p>
+<table>
+<tr><th>File</th><th>Cosa mostra il visualizzatore</th><th>Puoi scriverci?</th></tr>
+<tr><td>Il file della pagina, <code>index.md</code> o <code>index.html</code></td><td>L'intestazione e il corpo esattamente come salvati</td><td>Tutto</td></tr>
+<tr><td>Un disegno, <code>ink.svg</code></td><td>Il testo SVG, con le letture della penna</td><td>Sì, con cautela</td></tr>
+<tr><td>Un'immagine</td><td>L'immagine</td><td>No</td></tr>
+<tr><td>Altro testo</td><td>Il suo testo</td><td>No</td></tr>
+<tr><td>Qualsiasi altra cosa</td><td>Nome, dimensione e tipo</td><td>No</td></tr>
+</table>
+<p>Un file oltre 256 KB mostra la prima parte e lo dice.</p>
+<h2>Cosa ti mostra</h2>
+<ul>
+<li>Una pagina organizzata in riquadri ha un <code>div</code> con <code>class=&quot;nc-box&quot;</code> attorno a ogni riquadro.</li>
+<li>Un disegno è un file, <code>ink.svg</code>, e il testo della pagina lo nomina con una riga.</li>
+<li>Etichette e link sono testo semplice.</li>
+</ul>
+<p>Nulla è nascosto: se la pagina lo mostra, un file di questa cartella lo contiene.</p>
+<p>Avanti: <a href="../right-to-left/">Da destra a sinistra</a>.</p>
+</body>
+</html>

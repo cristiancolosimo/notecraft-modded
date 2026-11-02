@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Grafici, Vega e D3</title>
+<meta name="notecraft:id" content="b84d8244a05d30e43588">
+<meta name="notecraft:order" content="84">
+<meta name="notecraft:created" content="2026-10-18T00:00:00Z">
+<meta name="notecraft:updated" content="2026-10-18T00:00:00Z">
+</head>
+<body>
+<p>NoteCraft disegna direttamente sulla pagina i blocchi di grafici Mermaid. Gli esempi qui sotto sono grafici disegnati. Anche le specifiche Vega e i programmi D3 sono modi utili per descrivere i grafici, ma per ora NoteCraft li conserva come codice: non li esegue né li disegna come grafici.</p>
+<h2>Grafici disegnati</h2>
+<h3>Barre e una linea</h3>
+<pre class="diagram">xychart-beta
+    title &quot;Pagine scritte ogni mese&quot;
+    x-axis [Gen, Feb, Mar, Apr, Mag]
+    y-axis &quot;Pagine&quot; 0 --&gt; 100
+    bar [20, 38, 55, 72, 90]
+    line [12, 29, 48, 68, 86]</pre>
+<h3>Una torta</h3>
+<pre class="diagram">pie title Come si usano le note
+  &quot;Scrittura&quot; : 45
+  &quot;Pianificazione&quot; : 30
+  &quot;Consultazione&quot; : 25</pre>
+<h3>Un quadrante</h3>
+<pre class="diagram">quadrantChart
+    title Idee da provare
+    x-axis Poco sforzo --&gt; Molto sforzo
+    y-axis Poco valore --&gt; Molto valore
+    quadrant-1 Da fare dopo
+    quadrant-2 Da pianificare
+    quadrant-3 Da saltare
+    quadrant-4 Forse
+    Link tra pagine: [0.75, 0.82]
+    Strumenti a inchiostro: [0.58, 0.72]
+    Temi: [0.25, 0.3]</pre>
+<h3>Un calendario</h3>
+<pre class="diagram">gantt
+  title Un piccolo progetto di quaderno
+  dateFormat YYYY-MM-DD
+  section Realizzazione
+  Bozza :done, a1, 2026-10-01, 2d
+  Scrittura :active, a2, after a1, 3d
+  section Revisione
+  Condivisione :a3, after a2, 1d</pre>
+<h2>Sorgente Vega: un grafico a barre</h2>
+<p>Questa specifica è mostrata come sorgente JSON, non ancora disegnata da NoteCraft.</p>
+<pre class="json">{
+  &quot;$schema&quot;: &quot;https://vega.github.io/schema/vega-lite/v5.json&quot;,
+  &quot;data&quot;: {
+    &quot;values&quot;: [
+      {&quot;month&quot;: &quot;Jan&quot;, &quot;pages&quot;: 20},
+      {&quot;month&quot;: &quot;Feb&quot;, &quot;pages&quot;: 38},
+      {&quot;month&quot;: &quot;Mar&quot;, &quot;pages&quot;: 55}
+    ]
+  },
+  &quot;mark&quot;: &quot;bar&quot;,
+  &quot;encoding&quot;: {
+    &quot;x&quot;: {&quot;field&quot;: &quot;month&quot;, &quot;type&quot;: &quot;ordinal&quot;},
+    &quot;y&quot;: {&quot;field&quot;: &quot;pages&quot;, &quot;type&quot;: &quot;quantitative&quot;}
+  }
+}</pre>
+<h2>Sorgente Vega: un grafico a linee</h2>
+<pre class="json">{
+  &quot;$schema&quot;: &quot;https://vega.github.io/schema/vega-lite/v5.json&quot;,
+  &quot;data&quot;: {
+    &quot;values&quot;: [
+      {&quot;month&quot;: &quot;Jan&quot;, &quot;pages&quot;: 12},
+      {&quot;month&quot;: &quot;Feb&quot;, &quot;pages&quot;: 29},
+      {&quot;month&quot;: &quot;Mar&quot;, &quot;pages&quot;: 48}
+    ]
+  },
+  &quot;mark&quot;: &quot;line&quot;,
+  &quot;encoding&quot;: {
+    &quot;x&quot;: {&quot;field&quot;: &quot;month&quot;, &quot;type&quot;: &quot;ordinal&quot;},
+    &quot;y&quot;: {&quot;field&quot;: &quot;pages&quot;, &quot;type&quot;: &quot;quantitative&quot;}
+  }
+}</pre>
+<h2>Sorgente D3: un grafico a barre</h2>
+<p>Questo JavaScript è il codice sorgente di un grafico D3. NoteCraft mostra il codice ma non lo esegue.</p>
+<pre class="javascript">const data = [
+  { month: &quot;Jan&quot;, pages: 20 },
+  { month: &quot;Feb&quot;, pages: 38 },
+  { month: &quot;Mar&quot;, pages: 55 }
+];
+
+const svg = d3.select(&quot;svg&quot;)
+  .attr(&quot;width&quot;, 400)
+  .attr(&quot;height&quot;, 260);
+const x = d3.scaleBand()
+  .domain(data.map(d =&gt; d.month))
+  .range([0, 360])
+  .padding(0.15);
+const y = d3.scaleLinear()
+  .domain([0, d3.max(data, d =&gt; d.pages)])
+  .range([220, 0]);
+
+svg.selectAll(&quot;rect&quot;)
+  .data(data)
+  .join(&quot;rect&quot;)
+  .attr(&quot;x&quot;, d =&gt; x(d.month))
+  .attr(&quot;y&quot;, d =&gt; y(d.pages))
+  .attr(&quot;width&quot;, x.bandwidth())
+  .attr(&quot;height&quot;, d =&gt; 220 - y(d.pages));</pre>
+<h2>Sorgente D3: un grafico a linee</h2>
+<pre class="javascript">const data = [
+  { month: &quot;Jan&quot;, pages: 12 },
+  { month: &quot;Feb&quot;, pages: 29 },
+  { month: &quot;Mar&quot;, pages: 48 }
+];
+
+const svg = d3.select(&quot;svg&quot;)
+  .attr(&quot;width&quot;, 400)
+  .attr(&quot;height&quot;, 260);
+const x = d3.scalePoint()
+  .domain(data.map(d =&gt; d.month))
+  .range([20, 360]);
+const y = d3.scaleLinear()
+  .domain([0, d3.max(data, d =&gt; d.pages)])
+  .range([220, 0]);
+const line = d3.line()
+  .x(d =&gt; x(d.month))
+  .y(d =&gt; y(d.pages));
+
+svg.append(&quot;path&quot;)
+  .datum(data)
+  .attr(&quot;fill&quot;, &quot;none&quot;)
+  .attr(&quot;stroke&quot;, &quot;currentColor&quot;)
+  .attr(&quot;d&quot;, line);</pre>
+<p>Usa i blocchi Mermaid per vedere i grafici nella pagina. Tieni gli esempi Vega e D3 come codice finché NoteCraft non aggiungerà il supporto a quei formati.</p>
+<p>Avanti: <a href="../right-to-left/">Da destra a sinistra</a>.</p>
+</body>
+</html>

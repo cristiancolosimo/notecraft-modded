@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Da destra a sinistra</title>
+<meta name="notecraft:id" content="6415225f7e0c52b1c5e5">
+<meta name="notecraft:order" content="80">
+<meta name="notecraft:created" content="2026-10-18T00:00:00Z">
+<meta name="notecraft:updated" content="2026-10-18T00:00:00Z">
+</head>
+<body>
+<p>Arabo, ebraico, persiano e urdu si leggono da destra. NoteCraft li disegna così: le lettere si uniscono, una riga pende dal bordo destro, e una riga che mescola le due direzioni è composta dall'algoritmo Unicode, così un prezzo mantiene il suo numero nel verso giusto:</p>
+<p>السعر 123 ريال</p>
+<p>I caratteri che lo rendono possibile sono inclusi nell'app, quindi la riga qui sopra ha lo stesso aspetto su un computer senza caratteri arabi installati. Anche ebraico e hindi hanno i propri caratteri inclusi:</p>
+<p>שלום עולם</p>
+<p>नमस्ते दुनिया</p>
+<h2>Tre direzioni, tre controlli</h2>
+<table>
+<tr><th>Controllo</th><th>Dove</th><th>Cosa imposta</th></tr>
+<tr><td><b>Pagina</b></td><td><b>Home</b>, poi <b>Direzione</b></td><td>In che verso si legge tutta la pagina. Una riga senza lettere proprie la segue</td></tr>
+<tr><td><b>Paragrafo</b></td><td>Il menu di allineamento in <b>Testo di base</b></td><td>In che verso si legge il paragrafo in cui si trova il cursore</td></tr>
+<tr><td><b>Tratto</b></td><td><b>Altro...</b> nel gruppo Direzione</td><td>In che verso si legge la selezione, o ciò che scrivi dopo</td></tr>
+</table>
+<p>La direzione della pagina è propria di NoteCraft; le app da cui si arriva non hanno una simile impostazione, e un quaderno scritto in arabo ne ha bisogno.</p>
+<h2>Dove viene conservata l'impostazione</h2>
+<p>Nel testo stesso. La direzione della pagina è <code>dir: rtl</code> nel front matter di una pagina Markdown o un tag meta in una pagina HTML. La direzione di un paragrafo è un carattere invisibile al suo inizio, il segno Unicode da destra a sinistra o da sinistra a destra. Entrambe sopravvivono a qualsiasi altro editor.</p>
+<p>Una pagina scritta in arabo, persiano, urdu o ebraico è composta da destra a sinistra per intero. Torna alla <a href="../../../00-start/welcome/">pagina iniziale</a>.</p>
+</body>
+</html>

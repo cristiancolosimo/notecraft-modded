@@ -1,7 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 //! Builds full HTML and CMGFM Welcome notebooks under `docs/demo/DemoNotebook` from `docs/demo/scripts/content`.
 //!
-//! The two notebooks contain the same tour in thirteen languages. Every page and asset is
+//! The two notebooks contain the same tour in English and Italian. Every page and asset is
 //! converted to the notebook's one format. The HTML copy is embedded in the app; the CMGFM
 //! copy stays in the repository for comparison and testing.
 //!
@@ -46,24 +46,11 @@ struct Language {
     color: &'static str,
 }
 
-/// The thirteen languages the owner chose, left-to-right ones first. The How to titles are
-/// the plain word for a short guide in each language; a native reader may improve them.
+/// The languages of the tour: English, and Italian beside it. Add a folder under `content/` and a row
+/// here for another; right-to-left ones set `rtl`. The How to titles are the plain word for a short guide.
 const LANGUAGES: &[Language] = &[
     Language { code: "en", name: "English", english: "English", how_to: "How to", rtl: false, number: 10, color: "purple" },
-    Language { code: "es", name: "Español", english: "Spanish", how_to: "Cómo hacer", rtl: false, number: 11, color: "blue" },
-    Language { code: "fr", name: "Français", english: "French", how_to: "Comment faire", rtl: false, number: 12, color: "teal" },
-    Language { code: "de", name: "Deutsch", english: "German", how_to: "Anleitung", rtl: false, number: 13, color: "green" },
-    Language {
-        code: "hi", name: "हिन्दी", english: "Hindi", how_to: "कैसे करें", rtl: false, number: 14, color: "yellow"
-    },
-    Language { code: "ru", name: "Русский", english: "Russian", how_to: "Как сделать", rtl: false, number: 15, color: "orange" },
-    Language { code: "zh", name: "中文（简体）", english: "Chinese, Simplified", how_to: "使用指南", rtl: false, number: 16, color: "red" },
-    Language { code: "ja", name: "日本語", english: "Japanese", how_to: "使い方", rtl: false, number: 17, color: "magenta" },
-    Language { code: "ko", name: "한국어", english: "Korean", how_to: "사용 방법", rtl: false, number: 18, color: "gray" },
-    Language { code: "ar", name: "العربية", english: "Arabic", how_to: "كيف", rtl: true, number: 20, color: "purple" },
-    Language { code: "fa", name: "فارسی", english: "Persian", how_to: "راهنما", rtl: true, number: 21, color: "blue" },
-    Language { code: "ur", name: "اردو", english: "Urdu", how_to: "طریقہ", rtl: true, number: 22, color: "teal" },
-    Language { code: "he", name: "עברית", english: "Hebrew", how_to: "איך", rtl: true, number: 23, color: "green" },
+    Language { code: "it", name: "Italiano", english: "Italian", how_to: "Come fare", rtl: false, number: 11, color: "green" },
 ];
 
 impl Language {
@@ -847,7 +834,7 @@ mod tests {
     #[test]
     fn ids_are_stable_and_distinct() {
         assert_eq!(id_for("notebook"), id_for("notebook"));
-        assert_ne!(id_for("10-en/how-to/welcome"), id_for("11-es/how-to/welcome"));
+        assert_ne!(id_for("10-en/how-to/welcome"), id_for("11-it/how-to/welcome"));
         assert_ne!(id_for("ab"), id_for("ba"), "the reverse hash tells anagrams apart");
         assert_eq!(id_for("x").len(), 20);
         assert!(id_for("x").chars().all(|c| c.is_ascii_hexdigit()));
@@ -863,7 +850,7 @@ mod tests {
         numbers.sort_unstable();
         numbers.dedup();
         assert_eq!(numbers.len(), LANGUAGES.len(), "no folder number twice");
-        assert_eq!(LANGUAGES.iter().filter(|l| l.rtl).count(), 4, "Arabic, Persian, Urdu, Hebrew");
+        assert!(LANGUAGES.iter().all(|l| !l.rtl), "no right to left group is shipped");
         for l in LANGUAGES {
             assert!(names::validate_component(&l.folder()).is_ok(), "{}", l.folder());
             assert!(["purple", "blue", "teal", "green", "yellow", "orange", "red", "magenta", "gray"].contains(&l.color), "{}: {}", l.code, l.color);
@@ -976,7 +963,7 @@ page-color: yellow
         }
         let start = fs::read_to_string(html.join(START_FOLDER).join("welcome").join("index.html")).expect("HTML start page");
         assert!(start.contains("<li><a href=\"../../10-en/\">English</a></li>"), "{start}");
-        assert!(start.contains("<li><a href=\"../../20-ar/\">العربية</a>, Arabic, right to left</li>"), "{start}");
+        assert!(start.contains("<li><a href=\"../../11-it/\">Italiano</a>, Italian</li>"), "{start}");
         assert!(!start.contains(LANGUAGES_MARK));
         assert!(html.join("10-en").join("how-to").join("write-a-page").join("index.html").is_file());
         assert!(cmgfm.join("10-en").join("how-to").join("write-a-page").join("index.md").is_file());

@@ -37,5 +37,5 @@ In the text itself. A page direction is `dir: rtl` in the front matter of a Mark
 meta tag in an HTML page. A paragraph direction is one invisible character at its start, the
 Unicode right-to-left or left-to-right mark. Both survive any other editor.
 
-The Arabic, Persian, Urdu and Hebrew groups of this notebook are written right to left
-throughout. Open one from [the start page](../../../00-start/welcome/) and compare.
+A page written in Arabic, Persian, Urdu or Hebrew is set right to left throughout. Back to
+[the start page](../../../00-start/welcome/).

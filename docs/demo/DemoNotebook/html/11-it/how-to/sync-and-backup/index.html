@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Sincronizzazione e backup</title>
+<meta name="notecraft:id" content="24de4ec846650a8fa8cf">
+<meta name="notecraft:order" content="60">
+<meta name="notecraft:created" content="2026-10-18T00:00:00Z">
+<meta name="notecraft:updated" content="2026-10-18T00:00:00Z">
+</head>
+<body>
+<p>NoteCraft non ha una sincronizzazione propria e non ha account. Un quaderno è una cartella di piccoli file, quindi metti la cartella dei quaderni dove il tuo strumento di sincronizzazione già guarda: OneDrive, Dropbox, Google Drive, iCloud Drive, Syncthing, una condivisione di rete o un repository git. Nessuno di loro deve capire NoteCraft. Copiano file.</p>
+<h2>Perché funziona</h2>
+<ul>
+<li><b>Un file per pagina.</b> Modificare una pagina riscrive un piccolo file, quindi due computer</li>
+</ul>
+<p>raramente toccano gli stessi byte.</p>
+<ul>
+<li><b>Scritture atomiche.</b> Una pagina viene scritta in un file temporaneo e rinominata sopra</li>
+</ul>
+<p>quello vecchio, così un client di sincronizzazione non vede mai una pagina a metà.</p>
+<ul>
+<li><b>Nomi brevi e sicuri.</b> I nomi delle cartelle hanno al massimo 64 caratteri, i percorsi al</li>
+</ul>
+<p>massimo 255, e non viene mai scritto nulla che Windows rifiuti.</p>
+<ul>
+<li><b>Le copie in conflitto vengono notate.</b> Quando uno strumento di sincronizzazione lascia una</li>
+</ul>
+<p>copia in conflitto accanto a una pagina, il controllo la segnala: <b>File</b>, poi <b>Controlla</b>, oppure <code>notecraft-cli check</code> da terminale.</p>
+<h2>Backup</h2>
+<p>Un backup è una copia della cartella. Non c'è altro da esportare.</p>
+<h2>Cronologia della pagina</h2>
+<p>Apri <b>Cronologia</b>, poi <b>Versioni della pagina</b>, per rivedere e ripristinare le copie salvate di questa pagina. Per recuperare una pagina, sezione o gruppo di sezioni eliminati, apri <b>Cronologia</b>, poi <b>Cestino del quaderno</b>. Questi strumenti funzionano su questo dispositivo e non sostituiscono un backup separato del quaderno.</p>
+<h2>Cosa non è gestito</h2>
+<p>NoteCraft non unisce due versioni di una pagina. Se il tuo strumento di sincronizzazione crea una copia in conflitto, decidi tu quale versione tenere.</p>
+<p>Avanti: <a href="../make-it-yours/">Personalizza</a>.</p>
+</body>
+</html>

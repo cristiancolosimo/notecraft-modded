@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Importare OneNote in NoteCraft</title>
+<meta name="notecraft:id" content="eb720fbac514329520c9">
+<meta name="notecraft:order" content="95">
+<meta name="notecraft:created" content="2026-10-18T00:00:00Z">
+<meta name="notecraft:updated" content="2026-10-18T00:00:00Z">
+</head>
+<body>
+<p>NoteCraft può importare una cartella di quaderno completa o un singolo file importabile. Il ponte OfficeIMO converte l'origine nel formato di cartelle semplici di NoteCraft. L'origine resta invariata.</p>
+<p>La lettura di OneNote è fornita da <a href="https://github.com/EvotecIT/OfficeIMO">OfficeIMO</a>, un progetto open source distribuito con <a href="https://github.com/EvotecIT/OfficeIMO/blob/master/LICENSE">licenza MIT</a>.</p>
+<p>In <b>File &gt; Apri</b> usa le due azioni di importazione:</p>
+<ul>
+<li><b>Importa cartella del quaderno</b> importa un intero albero di cartelle.</li>
+<li><b>Importa file</b> importa un singolo file di sezione <code>.one</code>.</li>
+</ul>
+<p><img src="assets/import-open.png" alt="Azioni di importazione"></p>
+<h2>Importa cartella del quaderno</h2>
+<p>Scegli <b>Importa cartella del quaderno</b> e seleziona una cartella come <code>2026</code>. Il nome della cartella diventa il nome del quaderno. Le cartelle annidate diventano gruppi di sezioni e i file <code>.one</code> diventano sezioni. Pagine e sottopagine mantengono nomi e gerarchia.</p>
+<h2>Importa file</h2>
+<p>Scegli <b>Importa file</b> e seleziona un file <code>.one</code>. NoteCraft crea un quaderno con il nome del file e ci mette dentro la sezione importata.</p>
+<h2>Cosa succede durante l'importazione</h2>
+<p>NoteCraft crea la destinazione dentro la cartella dei quaderni configurata, apre il quaderno importato dopo un'importazione riuscita e lo aggiunge agli Aperti di recente. I file OneNote originali non vengono mai modificati. Una finestra di avanzamento mostra la sezione corrente e permette di annullare in sicurezza.</p>
+<p>Se esiste già un quaderno con lo stesso nome, NoteCraft evita di sovrascriverlo aggiungendo un suffisso in stile Windows: <code>2026</code>, <code>2026 (1)</code>, <code>2026 (2)</code> e così via.</p>
+<p>Le importazioni di cartelle scendono nelle cartelle annidate. Le cartelle diventano gruppi di sezioni, i file <code>.one</code> diventano sezioni, e pagine e sottopagine mantengono nomi e gerarchia.</p>
+<p><img src="assets/imported-notebook.png" alt="Quaderno importato"></p>
+<p>Mentre un'importazione è in corso, NoteCraft mostra una finestra di avanzamento con il tema corrente, con la sezione attuale, il conteggio e un pulsante Annulla importazione.</p>
+<p><img src="assets/import-progress.png" alt="Avanzamento dell'importazione"></p>
+<p>Le sezioni cifrate o non supportate sono segnalate nel file <code>import-errors.txt</code> del quaderno importato. Le sezioni leggibili si aprono comunque quando una cartella contiene un misto di file leggibili e non supportati.</p>
+</body>
+</html>

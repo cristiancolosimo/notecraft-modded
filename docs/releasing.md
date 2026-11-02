@@ -58,7 +58,7 @@ name or mark.
 Before publishing, install the MSI on a machine that has never run NoteCraft. Uninstalling leaves
 `%APPDATA%\NoteCraft\settings.toml` behind, and an old copy hides the first-use dialog and the
 Welcome notebook. Delete that folder and `Documents\NoteCraft` first, then check that
-`Documents\NoteCraft\welcome-to-notecraft` appears with its 13 language folders, and that the first-use
+`Documents\NoteCraft\welcome-to-notecraft` appears with its English and Italian folders, and that the first-use
 dialog shows once.
 
 | File | What it is |

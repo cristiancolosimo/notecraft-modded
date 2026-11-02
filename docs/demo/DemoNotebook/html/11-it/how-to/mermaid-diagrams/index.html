@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Diagrammi Mermaid</title>
+<meta name="notecraft:id" content="d631eb0d09cad9992da9">
+<meta name="notecraft:order" content="82">
+<meta name="notecraft:created" content="2026-10-18T00:00:00Z">
+<meta name="notecraft:updated" content="2026-10-18T00:00:00Z">
+</head>
+<body>
+<p>Scrivi un diagramma come testo Mermaid in un blocco delimitato. NoteCraft disegna il blocco sulla pagina nel tema corrente; apri il sorgente della pagina con <b>&lt; &gt;</b> per modificare il testo.</p>
+<h2>Diagramma di flusso</h2>
+<pre class="diagram">flowchart TD
+  Start[Scrivi una nota] --&gt; Save{Salvata?}
+  Save --&gt;|sì| Ready[Continua]
+  Save --&gt;|non ancora| Wait[Fai una breve pausa]
+  Wait --&gt; Save</pre>
+<h2>Sequenza</h2>
+<pre class="diagram">sequenceDiagram
+  Autore-&gt;&gt;Pagina: Scrive una riga
+  Pagina-&gt;&gt;File: Salva la pagina
+  File--&gt;&gt;Pagina: Salvata
+  Pagina--&gt;&gt;Autore: Continua a scrivere</pre>
+<h2>Mappa mentale</h2>
+<pre class="diagram">mindmap
+  root((Un quaderno))
+    Pagine
+      Parole
+      Equazioni
+    Disegni
+      Forme
+      Inchiostro
+    File
+      Immagini
+      Allegati</pre>
+<h2>Diagramma di stato</h2>
+<pre class="diagram">stateDiagram-v2
+  [*] --&gt; Pronto
+  Pronto --&gt; Modifica: scrive
+  Modifica --&gt; Salvato: pausa
+  Salvato --&gt; Modifica: scrive ancora
+  Salvato --&gt; [*]</pre>
+<h2>Diagramma a torta</h2>
+<pre class="diagram">pie title Pagine di questo percorso
+  &quot;Scrittura&quot; : 4
+  &quot;Disegno&quot; : 2
+  &quot;File&quot; : 2</pre>
+<p>Ogni blocco è un diagramma a sé. Il testo resta nel file della pagina, quindi si può cambiare o copiare senza un editor di immagini.</p>
+<p>Avanti: <a href="../charts-vega-d3/">Grafici, Vega e D3</a>.</p>
+</body>
+</html>
