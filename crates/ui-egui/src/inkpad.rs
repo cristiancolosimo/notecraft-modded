@@ -125,13 +125,33 @@ fn fingerprint(strokes: &[Stroke]) -> u64 {
 }
 
 /// The same for one stroke.
+static DARK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Tells the ink which theme is showing: black and white ink swap places in the dark one, so a line
+/// stays readable. Only what is drawn changes; the saved colour does not.
+pub fn set_dark(on: bool) {
+    DARK.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn dark() -> bool {
+    DARK.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn shown_colour(c: Rgb) -> Rgb {
+    match (dark(), c) {
+        (true, Rgb(0, 0, 0)) => Rgb(255, 255, 255),
+        (true, Rgb(255, 255, 255)) => Rgb(0, 0, 0),
+        _ => c,
+    }
+}
+
 fn stroke_fingerprint(s: &Stroke) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     let mut mix = |v: u64| {
         h ^= v;
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     };
-    mix(s.dabs.len() as u64);
+    mix(s.dabs.len() as u64 | u64::from(dark()) << 63);
     mix(u64::from(s.width.to_bits()) << 32 | u64::from(s.colour.0) << 16 | u64::from(s.colour.1) << 8 | u64::from(s.colour.2));
     for d in [s.dabs.first(), s.dabs.last()].into_iter().flatten() {
         mix(u64::from(d.x.to_bits()) << 32 | u64::from(d.y.to_bits()));
@@ -1003,7 +1023,8 @@ pub fn paint_stroke(painter: &egui::Painter, origin: egui::Pos2, stroke: &Stroke
 /// these is the cost of drawing ink (the outline of the line), so a finished stroke's are kept (see
 /// [`Pad::show`]) and moved into place rather than made again every frame.
 pub fn stroke_shapes(origin: egui::Pos2, stroke: &Stroke) -> Vec<egui::Shape> {
-    let colour = egui::Color32::from_rgb(stroke.colour.0, stroke.colour.1, stroke.colour.2).gamma_multiply(stroke.tool.opacity());
+    let shown = shown_colour(stroke.colour);
+    let colour = egui::Color32::from_rgb(shown.0, shown.1, shown.2).gamma_multiply(stroke.tool.opacity());
     let put = |x: f32, y: f32| egui::pos2(origin.x + x, origin.y + y);
     let (left, right) = shape::sides(stroke);
     if left.len() < 2 {

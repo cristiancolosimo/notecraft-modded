@@ -894,6 +894,7 @@ impl NoteCraftApp {
         }
         self.effective_mode = if ctx.theme() == egui::Theme::Dark { Mode::Dark } else { Mode::Light };
         self.tokens = self.theme().tokens();
+        crate::inkpad::set_dark(self.effective_mode == Mode::Dark);
         // Keep every modal surface opaque and on the same themed panel as the rest of the app.
         // Individual dialogs may opt out of the native title bar, but they all inherit this
         // surface and border treatment.
