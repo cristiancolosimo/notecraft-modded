@@ -34,7 +34,7 @@ side by side. Status words:
 | Sync | Cloud sync and backup | Done by design | Plain files in a synced folder. Verified once on OneDrive in the prototype; not re-verified for this build. |
 | Sync | Section passwords | Later | |
 | Collaboration | Sharing | By design | A shared folder. Live co-authoring is Later. |
-| Output | Export | Later | Export scope is undecided. |
+| Output | Export | Partial | File, Export writes a notebook as one ZIP of its folder. Other formats (PDF, Word) are not built. |
 | Output | Import | In progress | Required, import only (owner's decision, 2026-10-17). `notecraft-cli import onenote` reads `.one` files and writes notebook folders in either page format. Not done: ink, tags, `.onetoc2`, the window. |
 | Output | Add-ins, AI | Later | |
 | Look | Themes | Done | 14 themes, contrast checked. `themes.md`. |

@@ -1651,7 +1651,7 @@ fn the_rack_can_be_arranged_and_is_remembered() {
     let rack =
         |h: &mut Harness<'_, NoteCraftApp>| ask(h, "ui.inspect", json!({})).expect("inspect")["ink"]["rack"].as_str().unwrap_or_default().to_string();
     let before = rack(&mut h);
-    assert_eq!(before.split('|').count(), 7, "the rack a notebook starts with: {before}");
+    assert_eq!(before.split('|').count(), 8, "the rack a notebook starts with: {before}");
 
     // Add a fountain pen: it goes on the end and comes to hand.
     h.get_by_label("Add").click();
@@ -1663,11 +1663,11 @@ fn the_rack_can_be_arranged_and_is_remembered() {
     h.get_by_label("Add Fountain Pen").click();
     settle(&mut h);
     let after = rack(&mut h);
-    assert_eq!(after.split('|').count(), 8, "one more tool: {after}");
+    assert_eq!(after.split('|').count(), 9, "one more tool: {after}");
     assert!(after.split('|').next_back().is_some_and(|n| n.starts_with("fountain-pen:")), "on the end: {after}");
     let now = ask(&mut h, "ui.inspect", json!({})).expect("inspect")["ink"].clone();
     assert_eq!(now["tool"].as_str(), Some("fountain-pen"), "and in hand: {now}");
-    assert_eq!(now["nib"].as_u64(), Some(7));
+    assert_eq!(now["nib"].as_u64(), Some(8));
 
     // It was written down, so the next window opens with it.
     let saved = std::fs::read_to_string(&settings).unwrap_or_default();

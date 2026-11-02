@@ -2660,6 +2660,7 @@ dependencies = [
  "egui",
  "log",
  "notecraft-engine",
+ "notecraft-rfd-android-stub",
  "notecraft-store",
  "notecraft-ui-egui",
 ]

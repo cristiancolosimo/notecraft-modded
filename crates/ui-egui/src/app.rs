@@ -36,9 +36,6 @@ use web_time::Instant;
 const AUTOSAVE_AFTER: Duration = Duration::from_millis(900);
 /// The three-bar button: what OneNote puts at the top left of the navigation pane.
 const BARS: &str = "\u{2630}";
-/// The ArtCraft community chat. Opened in the browser, never fetched by the app.
-const DISCORD_URL: &str = "https://discord.gg/artcraft";
-
 /// Where the pen rack and the tool in hand are remembered between runs.
 const RACK_KEY: &str = "pen_rack";
 const NIB_KEY: &str = "pen_in_hand";
@@ -1814,8 +1811,6 @@ impl NoteCraftApp {
         right.add_space(4.0);
         self.theme_menu(&mut right, on);
         right.add_space(10.0);
-        self.discord_link(&mut right, on);
-        right.add_space(10.0);
         let resp = right.add(egui::TextEdit::singleline(&mut self.search).hint_text("Search all pages").desired_width(200.0));
         if self.focus_search {
             resp.request_focus();
@@ -1829,32 +1824,6 @@ impl NoteCraftApp {
             };
         }
         ui.advance_cursor_after_rect(row);
-    }
-
-    /// The header's link to the ArtCraft Discord. It opens in the browser, as the other ArtCraft
-    /// applications do.
-    fn discord_link(&self, ui: &mut Ui, on: Tokens) {
-        // Painted by hand: a button draws its image in the SVG's own black and ignores the
-        // theme, so the icon takes the header's text colour through a tint, as the window buttons do.
-        let (rect, resp) = ui.allocate_exact_size(vec2(96.0, 26.0), Sense::click());
-        if resp.hovered() {
-            ui.painter().rect_filled(rect, 4.0, on.row_hover);
-        }
-        let icon = egui::Rect::from_center_size(egui::pos2(rect.min.x + 14.0, rect.center().y), vec2(16.0, 16.0));
-        icons::coloured_svg("chat-multiple", include_bytes!("../assets/fluent/chat-multiple.svg"), on.text)
-            .fit_to_exact_size(vec2(16.0, 16.0))
-            .paint_at(ui, icon);
-        ui.painter().text(
-            egui::pos2(rect.min.x + 30.0, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            "Discord",
-            egui::FontId::proportional(13.0),
-            on.text,
-        );
-        let resp = resp.on_hover_text(DISCORD_URL);
-        if resp.clicked() {
-            ui.ctx().open_url(egui::OpenUrl::new_tab(DISCORD_URL));
-        }
     }
 
     /// Minimise, maximise or restore, and close: the buttons the system would have drawn.
@@ -2015,6 +1984,17 @@ impl NoteCraftApp {
                             .save_file()
                     {
                         let _ = crate::telemetry_export::export(&session.path(), &destination);
+                    }
+                }
+                backstage::Act::ExportNotebook(path) => {
+                    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "notebook".into());
+                    if let Some(destination) =
+                        rfd::FileDialog::new().set_title("Export notebook as ZIP").set_file_name(format!("{name}.zip")).save_file()
+                    {
+                        match crate::export::notebook_zip(&path, &destination) {
+                            Ok(files) => self.say(format!("Exported {files} files of {name} to {}", destination.display())),
+                            Err(e) => self.complain(&format!("Cannot export {name}: {e}")),
+                        }
                     }
                 }
                 backstage::Act::AddWelcome => {

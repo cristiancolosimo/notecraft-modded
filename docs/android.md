@@ -26,6 +26,13 @@ then has no force, `Stylus::pen_contact` is false, and `set_pen_only` makes the 
 it: only the pen draws. Check real readings with the pressure canvas before tuning the curve (see
 [ink-and-pressure.md](ink-and-pressure.md)).
 
+## Export
+
+File, Export writes a notebook as a ZIP. There is no save dialog on Android yet, so the ZIP goes
+to `Android/data/com.alientechsoftware.notecraft/files/Exports` on the tablet's storage, and the
+status bar says where. Copy it off with
+`adb pull /sdcard/Android/data/com.alientechsoftware.notecraft/files/Exports`.
+
 ## Icon
 
 An adaptive icon: a solid purple background and the koala from `assets/brand/notecraft-512.png`

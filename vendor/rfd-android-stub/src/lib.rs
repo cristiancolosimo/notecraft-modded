@@ -2,21 +2,35 @@
 //!
 //! The desktop dialogs have no Android equivalent here yet (it needs the Storage Access
 //! Framework through JNI), so every picker reports that it chose nothing, which the callers
-//! already treat as "cancelled". The gap is logged and listed in docs/gaps.md.
+//! already treat as "cancelled". The one exception is saving: with a folder set by
+//! `set_save_dir`, `save_file` answers with that folder and the suggested name, so an export
+//! lands in the app's own storage without a dialog. The gaps are listed in docs/gaps.md.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+static SAVE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Where `save_file` puts what the app saves (the app calls this once, at start).
+pub fn set_save_dir(dir: PathBuf) {
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = SAVE_DIR.set(dir);
+}
 
 #[derive(Default)]
-pub struct FileDialog;
+pub struct FileDialog {
+    name: Option<String>,
+}
 
 impl FileDialog {
     pub fn new() -> Self {
-        Self
+        Self::default()
     }
     pub fn set_title(self, _title: impl Into<String>) -> Self {
         self
     }
-    pub fn set_file_name(self, _name: impl Into<String>) -> Self {
+    pub fn set_file_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
         self
     }
     pub fn set_directory(self, _dir: impl AsRef<Path>) -> Self {
@@ -32,7 +46,10 @@ impl FileDialog {
         unsupported()
     }
     pub fn save_file(self) -> Option<PathBuf> {
-        unsupported()
+        match (SAVE_DIR.get(), self.name) {
+            (Some(dir), Some(name)) => Some(dir.join(name)),
+            _ => unsupported(),
+        }
     }
 }
 

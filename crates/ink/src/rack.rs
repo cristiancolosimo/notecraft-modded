@@ -55,11 +55,12 @@ impl Nib {
     }
 }
 
-/// The rack a new notebook starts with: four pens, a pencil, two highlighters, in the
-/// order OneNote racks them.
+/// The rack a new notebook starts with: a black and a white pen (the white one for dark
+/// pages), three coloured pens, a pencil, two highlighters, in the order OneNote racks them.
 pub fn fresh() -> Vec<Nib> {
     vec![
         Nib::new(Tool::Pen, Rgb(0x20, 0x20, 0x20), 30),
+        Nib::new(Tool::Pen, Rgb(0xff, 0xff, 0xff), 30),
         Nib::new(Tool::Pen, Rgb(0xd0, 0x21, 0x21), 30),
         Nib::new(Tool::Pen, Rgb(0x18, 0x55, 0xc4), 30),
         Nib::new(Tool::Pen, Rgb(0x16, 0x7f, 0x3d), 30),
@@ -142,6 +143,11 @@ mod tests {
         for junk in ["", "pen", "pen:#202020", "crayon:#202020:30", "pen:nonsense:30", "pen:#202020:lots", "pen:#202020:30:extra"] {
             assert_eq!(Nib::parse(junk), None, "{junk:?} is not a nib");
         }
+    }
+
+    #[test]
+    fn a_new_rack_has_a_white_pen_for_dark_pages() {
+        assert!(fresh().iter().any(|n| n.tool == Tool::Pen && n.colour == Rgb(0xff, 0xff, 0xff)));
     }
 
     #[test]

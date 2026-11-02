@@ -41,6 +41,8 @@ pub enum Act {
     OpenTelemetryFolder(std::path::PathBuf),
     ClearTelemetry(std::path::PathBuf),
     ExportTelemetry(std::path::PathBuf),
+    /// Write this notebook to a ZIP.
+    ExportNotebook(std::path::PathBuf),
     ResetPreferences,
     /// Another page of the File screen: Info, New or Open.
     Page(&'static str),
@@ -57,7 +59,7 @@ pub const SIDE: [(&str, bool); 10] = [
     ("Save a Copy", false),
     ("Print", false),
     ("Share", false),
-    ("Export", false),
+    ("Export", true),
     ("Account", false),
     ("Options", true),
     ("About", true),
@@ -90,6 +92,7 @@ pub fn show(
                 match page {
                     "New" => new_page(ui, notebooks_folder, t, &mut acts),
                     "Open" => open_page(ui, recent, notebooks_folder, show_path, t, &mut acts),
+                    "Export" => export_page(ui, notebooks, show_path, t, &mut acts),
                     "About" => about_page(ui, telemetry_root, session_id, t),
                     "Options" => options_page(ui, telemetry_root, telemetry_level, session_id, t, &mut acts),
                     _ => info_page(ui, notebooks, notebooks_folder, show_path, t, &mut acts),
@@ -217,6 +220,32 @@ fn info_page(ui: &mut Ui, notebooks: &[Node], folder: &str, show_path: &dyn Fn(&
             .size(11.5)
             .color(t.muted),
     );
+}
+
+/// Export: each notebook as one ZIP of its folder.
+fn export_page(ui: &mut Ui, notebooks: &[Node], show_path: &dyn Fn(&std::path::Path) -> String, t: &Tokens, acts: &mut Vec<Act>) {
+    heading(ui, "Export a notebook", t);
+    ui.label(egui::RichText::new("A ZIP holds the notebook folder as it is, so unzipping it gives the notebook back.").color(t.muted));
+    ui.add_space(8.0);
+    if notebooks.is_empty() {
+        ui.label(egui::RichText::new("There are no notebooks yet. \"New\" starts one.").color(t.muted));
+    }
+    egui::ScrollArea::vertical().id_salt("backstage-export").show(ui, |ui| {
+        for n in notebooks {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new(&n.info.title).size(16.0).color(t.accent));
+                    ui.label(egui::RichText::new(show_path(&n.path)).size(11.5).monospace().color(t.muted));
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if open_action(ui, "Export as ZIP", 150.0, 30.0, t, true).clicked() {
+                        acts.push(Act::ExportNotebook(n.path.clone()));
+                    }
+                });
+            });
+            ui.add_space(8.0);
+        }
+    });
 }
 
 fn new_page(ui: &mut Ui, folder: &str, t: &Tokens, acts: &mut Vec<Act>) {
@@ -467,7 +496,7 @@ mod tests {
     #[test]
     fn the_side_entries_say_what_works() {
         let built: Vec<&str> = SIDE.iter().filter(|(_, b)| *b).map(|(n, _)| *n).collect();
-        assert_eq!(built, vec!["Info", "New", "Open", "Options", "About"]);
+        assert_eq!(built, vec!["Info", "New", "Open", "Export", "Options", "About"]);
         assert_eq!(SIDE.len(), 10, "the rest are listed and marked, not hidden");
         assert!(SIDE.iter().any(|(n, b)| *n == "Print" && !*b));
     }

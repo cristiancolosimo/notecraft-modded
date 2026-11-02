@@ -22,6 +22,7 @@ pub mod codeview;
 pub mod containers;
 pub mod control;
 pub mod diagramview;
+pub mod export;
 pub mod floating;
 pub mod fonts;
 pub mod gridcraft;

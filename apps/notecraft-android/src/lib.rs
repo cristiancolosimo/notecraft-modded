@@ -44,6 +44,9 @@ fn open_session(data: &Path) -> Result<Session, String> {
 #[unsafe(no_mangle)]
 fn android_main(app: AndroidApp) {
     android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Debug).with_tag("NoteCraft"));
+    // Exports go to the app's folder on shared storage, readable over USB and by adb
+    // (there is no save dialog yet).
+    rfd_android::set_save_dir(app.external_data_path().unwrap_or_else(|| data_dir(&app)).join("Exports"));
     let session = match open_session(&data_dir(&app)) {
         Ok(session) => session,
         Err(e) => {
