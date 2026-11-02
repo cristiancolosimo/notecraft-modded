@@ -956,7 +956,10 @@ fn actions(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pointer: crate::ribbon:
             // The copy is held: the arrow takes it, where a lasso would start a new loop.
             ctx.data_mut(|d| d.insert_temp(switch_id(), true));
         }
-        Some("paste") => changed |= pad.put(&clip, view_top_left.0, view_top_left.1),
+        Some("paste") => {
+            changed |= pad.put(&clip, view_top_left.0, view_top_left.1);
+            ctx.data_mut(|d| d.insert_temp(switch_id(), true));
+        }
         Some("all") => pad.select_all(),
         _ => {}
     }
