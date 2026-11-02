@@ -1010,7 +1010,7 @@ impl NoteCraftApp {
     fn quick_access(&mut self, ui: &mut Ui, tokens: Tokens) {
         let enabled =
             quickaccess::Enabled { back: self.nav.can_back(), forward: self.nav.can_forward(), undo: self.can_undo(), redo: self.can_redo() };
-        let (pressed, changed) = quickaccess::show(ui, &mut self.qat, enabled, &tokens);
+        let (pressed, changed) = quickaccess::show(ui, &mut self.qat, enabled, &tokens, &self.tokens);
         if changed {
             self.qat.save(|k, v| {
                 let _ = self.session.settings.set(k, v);

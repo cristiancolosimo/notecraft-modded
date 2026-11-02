@@ -146,7 +146,7 @@ const BTN: f32 = 26.0;
 /// Draws the strip in the layout it is given: the buttons that are shown, then the small arrow
 /// that opens the menu. Returns the command that was pressed, if one was, and whether the menu
 /// changed the [`Config`] (so the caller can keep it).
-pub fn show(ui: &mut Ui, config: &mut Config, enabled: Enabled, t: &Tokens) -> (Option<Command>, bool) {
+pub fn show(ui: &mut Ui, config: &mut Config, enabled: Enabled, t: &Tokens, menu: &Tokens) -> (Option<Command>, bool) {
     let mut pressed = None;
     let mut changed = false;
     ui.spacing_mut().item_spacing.x = 1.0;
@@ -159,26 +159,26 @@ pub fn show(ui: &mut Ui, config: &mut Config, enabled: Enabled, t: &Tokens) -> (
     }
     // The arrow stays even when the strip is hidden, so it can be brought back.
     let arrow = customize_button(ui, t);
-    let frame = egui::Frame::NONE.fill(t.panel).stroke(egui::Stroke::new(1.0, t.rule_line)).corner_radius(4.0).inner_margin(egui::Margin::same(4));
+    let frame = egui::Frame::NONE.fill(menu.panel).stroke(egui::Stroke::new(1.0, menu.rule_line)).corner_radius(4.0).inner_margin(egui::Margin::same(4));
     egui::Popup::menu(&arrow).frame(frame).show(|ui| {
         ui.set_width(floating::MENU_W + 20.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        ui.label(egui::RichText::new("Customize Quick Access Toolbar").strong().color(t.text));
+        ui.label(egui::RichText::new("Customize Quick Access Toolbar").strong().color(menu.text));
         ui.add_space(4.0);
         for cmd in Command::ALL {
-            if floating::menu_check_row(ui, config.shows(cmd), cmd.label(), t).clicked() {
+            if floating::menu_check_row(ui, config.shows(cmd), cmd.label(), menu).clicked() {
                 config.show[cmd.index()] = !config.shows(cmd);
                 changed = true;
             }
         }
-        floating::menu_separator(ui, t);
+        floating::menu_separator(ui, menu);
         let place = if config.below { "Show Above the Ribbon" } else { "Show Below the Ribbon" };
-        if floating::menu_row(ui, None, place, t).clicked() {
+        if floating::menu_row(ui, None, place, menu).clicked() {
             config.below = !config.below;
             changed = true;
         }
         let hide = if config.hidden { "Show Quick Access Toolbar" } else { "Hide Quick Access Toolbar" };
-        if floating::menu_row(ui, None, hide, t).clicked() {
+        if floating::menu_row(ui, None, hide, menu).clicked() {
             config.hidden = !config.hidden;
             changed = true;
         }
