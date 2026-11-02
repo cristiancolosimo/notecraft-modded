@@ -579,6 +579,9 @@ pub struct NoteCraftApp {
     sync: crate::syncing::Syncing,
     /// A touch tablet: the keyboard switch shows, and the pen draws by default.
     soft_keyboard_blocked: bool,
+    /// How far dialogs are lifted from the middle of the window, in points (negative is up), so they sit
+    /// in the part of it the system bars and the on-screen keyboard leave free.
+    dialog_lift: f32,
     /// Where the page's words were drawn last frame, which is where its ink goes.
     page_rect: Option<egui::Rect>,
     /// What the pointer does on the page (the Draw tab).
@@ -710,6 +713,7 @@ impl NoteCraftApp {
             fps_limit: settings_for_sync.get("fps_limit").and_then(|v| v.parse().ok()).filter(|n| crate::perf::FPS_LIMITS.contains(n)).unwrap_or(0),
             last_frame: None,
             soft_keyboard_blocked: false,
+            dialog_lift: 0.0,
             page_rect: None,
             pointer: ribbon::Pointer::Write,
             rack,
@@ -2364,7 +2368,7 @@ impl NoteCraftApp {
             .collapsible(false)
             .resizable(false)
             .title_bar(false)
-            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+            .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
             .frame(modal_frame(&self.tokens))
             .show(ctx, |ui| {
                 ui.set_min_width(420.0);
@@ -4707,7 +4711,7 @@ impl NoteCraftApp {
                 egui::Window::new("Clear telemetry")
                     .collapsible(false)
                     .resizable(false)
-                    .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
                     .frame(modal_frame(&self.tokens))
                     .show(ctx, |ui| {
                         ui.set_min_width(440.0);
@@ -4745,7 +4749,7 @@ impl NoteCraftApp {
                     .collapsible(false)
                     .resizable(false)
                     .order(egui::Order::Foreground)
-                    .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
                     .frame(modal_frame(&self.tokens))
                     .show(ctx, |ui| {
                         modal_title(ui, &self.tokens, "Welcome to NoteCraft");
@@ -4789,7 +4793,7 @@ impl NoteCraftApp {
                     .collapsible(false)
                     .resizable(false)
                     .order(egui::Order::Foreground)
-                    .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
                     .frame(modal_frame(&self.tokens))
                     .show(ctx, |ui| {
                         modal_title(ui, &self.tokens, title.as_str());
@@ -4821,7 +4825,7 @@ impl NoteCraftApp {
                     .collapsible(false)
                     .resizable(false)
                     .order(egui::Order::Foreground)
-                    .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
                     .frame(modal_frame(&self.tokens))
                     .show(ctx, |ui| {
                         modal_title(ui, &self.tokens, "Reset app preferences");
@@ -4866,7 +4870,7 @@ impl NoteCraftApp {
                     .collapsible(false)
                     .resizable(false)
                     .order(egui::Order::Foreground)
-                    .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
                     .frame(modal_frame(&self.tokens))
                     .show(ctx, |ui| {
                         modal_title(ui, &self.tokens, "Attachment icon missing");
@@ -4930,7 +4934,7 @@ impl NoteCraftApp {
                     .collapsible(false)
                     .resizable(false)
                     .order(egui::Order::Foreground)
-                    .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
                     .frame(modal_frame(&self.tokens))
                     .show(ctx, |ui| {
                         modal_title(ui, &self.tokens, "Attachment not linked");
@@ -4989,7 +4993,7 @@ impl NoteCraftApp {
                     .collapsible(false)
                     .resizable(false)
                     .order(egui::Order::Foreground)
-                    .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
                     .frame(modal_frame(&self.tokens))
                     .show(ctx, |ui| {
                         modal_title(ui, &self.tokens, "Open attachment");
@@ -5051,7 +5055,7 @@ impl NoteCraftApp {
                     .collapsible(false)
                     .resizable(false)
                     .title_bar(false)
-                    .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
                     .frame(modal_frame(&self.tokens))
                     .show(ctx, |ui| {
                         ui.set_min_width(380.0);
@@ -5117,7 +5121,7 @@ impl NoteCraftApp {
                     .collapsible(false)
                     .resizable(false)
                     .order(egui::Order::Foreground)
-                    .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
                     .frame(modal_frame(&self.tokens))
                     .show(ctx, |ui| {
                         modal_title(ui, &self.tokens, "New notebook");
@@ -5167,7 +5171,7 @@ impl NoteCraftApp {
                     .collapsible(false)
                     .resizable(false)
                     .order(egui::Order::Foreground)
-                    .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
                     .frame(modal_frame(&self.tokens))
                     .show(ctx, |ui| {
                         modal_title(ui, &self.tokens, &heading);
@@ -5221,24 +5225,27 @@ impl NoteCraftApp {
             }
             Dialog::Rename { path, title } => {
                 let mut go = false;
-                egui::Window::new("Rename").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0)).show(ctx, |ui| {
-                    ui.label("Title (the folder name does not change)");
-                    let r = ui.text_edit_singleline(title);
-                    // Read Enter before asking for focus again: a new focus request hides the lost focus.
-                    let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                    if !r.has_focus() {
-                        // Once: asking again every frame restarts the on-screen keyboard every frame.
-                        r.request_focus();
-                    }
-                    ui.horizontal(|ui| {
-                        if modal_button(ui, &self.tokens, "Cancel", false).clicked() {
-                            keep = false;
+                egui::Window::new("Rename").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift)).show(
+                    ctx,
+                    |ui| {
+                        ui.label("Title (the folder name does not change)");
+                        let r = ui.text_edit_singleline(title);
+                        // Read Enter before asking for focus again: a new focus request hides the lost focus.
+                        let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                        if !r.has_focus() {
+                            // Once: asking again every frame restarts the on-screen keyboard every frame.
+                            r.request_focus();
                         }
-                        if (modal_button(ui, &self.tokens, "Rename", true).clicked() || enter) && !title.trim().is_empty() {
-                            go = true;
-                        }
-                    });
-                });
+                        ui.horizontal(|ui| {
+                            if modal_button(ui, &self.tokens, "Cancel", false).clicked() {
+                                keep = false;
+                            }
+                            if (modal_button(ui, &self.tokens, "Rename", true).clicked() || enter) && !title.trim().is_empty() {
+                                go = true;
+                            }
+                        });
+                    },
+                );
                 if go {
                     if self.run("node.title", &params(&[("path", &path_str(path)), ("title", title.trim())])).is_some() {
                         if self.editor.as_ref().map(|e| e.dir == *path).unwrap_or(false) {
@@ -5262,7 +5269,7 @@ impl NoteCraftApp {
                     .collapsible(false)
                     .resizable(false)
                     .order(egui::Order::Foreground)
-                    .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
                     .frame(modal_frame(&self.tokens))
                     .show(ctx, |ui| {
                         modal_title(ui, &self.tokens, "Delete file");
@@ -5307,7 +5314,7 @@ impl NoteCraftApp {
                     .collapsible(false)
                     .resizable(false)
                     .title_bar(false)
-                    .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
                     .frame(modal_frame(&self.tokens))
                     .show(ctx, |ui| {
                         ui.set_min_width(440.0);
@@ -5359,7 +5366,7 @@ impl NoteCraftApp {
                     .collapsible(false)
                     .resizable(false)
                     .title_bar(false)
-                    .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
                     .frame(modal_frame(&self.tokens))
                     .show(ctx, |ui| {
                         ui.set_min_width(420.0);
@@ -5426,30 +5433,36 @@ impl NoteCraftApp {
             }
             Dialog::PageVersions { page, versions } => {
                 let mut restore: Option<String> = None;
-                egui::Window::new("Page versions").collapsible(false).resizable(true).anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0)).show(ctx, |ui| {
-                    ui.set_min_width(420.0);
-                    ui.label("Saved copies of this page");
-                    ui.add_space(6.0);
-                    if versions.is_empty() {
-                        ui.label("No saved versions yet. NoteCraft keeps a copy when the page changes.");
-                    } else {
-                        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-                            for version in versions.iter() {
-                                ui.horizontal(|ui| {
-                                    ui.label(&version.created);
-                                    ui.label(egui::RichText::new(format!("{} KB", version.bytes.div_ceil(1024))).small().color(self.tokens.muted));
-                                    if modal_button(ui, &self.tokens, "Restore", true).clicked() {
-                                        restore = Some(version.id.clone());
-                                    }
-                                });
-                            }
-                        });
-                    }
-                    ui.add_space(8.0);
-                    if modal_button(ui, &self.tokens, "Close", false).clicked() {
-                        keep = false;
-                    }
-                });
+                egui::Window::new("Page versions")
+                    .collapsible(false)
+                    .resizable(true)
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
+                    .show(ctx, |ui| {
+                        ui.set_min_width(420.0);
+                        ui.label("Saved copies of this page");
+                        ui.add_space(6.0);
+                        if versions.is_empty() {
+                            ui.label("No saved versions yet. NoteCraft keeps a copy when the page changes.");
+                        } else {
+                            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                                for version in versions.iter() {
+                                    ui.horizontal(|ui| {
+                                        ui.label(&version.created);
+                                        ui.label(
+                                            egui::RichText::new(format!("{} KB", version.bytes.div_ceil(1024))).small().color(self.tokens.muted),
+                                        );
+                                        if modal_button(ui, &self.tokens, "Restore", true).clicked() {
+                                            restore = Some(version.id.clone());
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                        ui.add_space(8.0);
+                        if modal_button(ui, &self.tokens, "Close", false).clicked() {
+                            keep = false;
+                        }
+                    });
                 if let Some(id) = restore {
                     if self.run("page.version.restore", &params(&[("path", &path_str(page)), ("id", &id)])).is_some() {
                         self.open_page(page);
@@ -5461,9 +5474,11 @@ impl NoteCraftApp {
             Dialog::RecycleBin { notebook, items } => {
                 let mut restore: Option<String> = None;
                 let mut purge: Option<(String, String)> = None;
-                egui::Window::new("Notebook recycle bin").collapsible(false).resizable(true).anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0)).show(
-                    ctx,
-                    |ui| {
+                egui::Window::new("Notebook recycle bin")
+                    .collapsible(false)
+                    .resizable(true)
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
+                    .show(ctx, |ui| {
                         ui.set_min_width(460.0);
                         if items.is_empty() {
                             ui.label("This notebook's recycle bin is empty.");
@@ -5490,8 +5505,7 @@ impl NoteCraftApp {
                         if modal_button(ui, &self.tokens, "Close", false).clicked() {
                             keep = false;
                         }
-                    },
-                );
+                    });
                 if let Some(id) = restore {
                     if self.run("recycle.restore", &params(&[("notebook", &path_str(notebook)), ("id", &id)])).is_some() {
                         self.say("Restored to the original location");
@@ -5503,9 +5517,11 @@ impl NoteCraftApp {
             }
             Dialog::PurgeRecycleItem { notebook, id, title } => {
                 let mut purge = false;
-                egui::Window::new("Permanently delete?").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0)).show(
-                    ctx,
-                    |ui| {
+                egui::Window::new("Permanently delete?")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
+                    .show(ctx, |ui| {
                         ui.label(format!("Permanently delete \"{title}\" and everything inside it?"));
                         ui.colored_label(self.tokens.warn, "This cannot be undone.");
                         ui.horizontal(|ui| {
@@ -5516,8 +5532,7 @@ impl NoteCraftApp {
                                 purge = true;
                             }
                         });
-                    },
-                );
+                    });
                 if purge && self.run("recycle.purge", &params(&[("notebook", &path_str(notebook)), ("id", id)])).is_some() {
                     self.say("Permanently deleted");
                     keep = false;
@@ -5525,9 +5540,11 @@ impl NoteCraftApp {
             }
             Dialog::Symbols => {
                 let mut chosen: Option<&'static str> = None;
-                egui::Window::new("Insert symbol").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0)).show(
-                    ctx,
-                    |ui| {
+                egui::Window::new("Insert symbol")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
+                    .show(ctx, |ui| {
                         ui.label("Choose a symbol to insert at the caret");
                         ui.add_space(6.0);
                         for row in [["©", "®", "™", "§", "¶"], ["•", "→", "←", "±", "°"], ["×", "÷", "√", "€", "£"], ["¥", "¢", "∞", "≠", "≤"]]
@@ -5548,8 +5565,7 @@ impl NoteCraftApp {
                         if modal_button(ui, &self.tokens, "Close", false).clicked() {
                             keep = false;
                         }
-                    },
-                );
+                    });
                 if let Some(symbol) = chosen {
                     self.insert_in_page(symbol);
                     keep = false;
@@ -5935,6 +5951,9 @@ impl NoteCraftApp {
     }
     /// Draws the whole window. Call once per frame.
     pub fn show(&mut self, ui: &mut Ui) {
+        // The ui is the room the system leaves (see the Android shell): dialogs are centred in it, not in
+        // the whole window, where the keyboard would cover the very field being typed in.
+        self.dialog_lift = ui.max_rect().center().y - ui.ctx().content_rect().center().y;
         // The frame cap: a frame is not started until enough time has gone since the last one.
         // Not on the web, which cannot sleep.
         #[cfg(not(target_arch = "wasm32"))]
