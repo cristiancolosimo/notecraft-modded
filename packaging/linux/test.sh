@@ -15,7 +15,7 @@ ARCH="$(uname -m)"
 ARCHIVE="$DIST/notecraft-$VERSION-linux-$ARCH.tar.gz"
 [ -s "$ARCHIVE" ] || { echo "missing package: $ARCHIVE" >&2; exit 1; }
 tar -tzf "$ARCHIVE" | grep -Fx "notecraft-$VERSION-linux-$ARCH/bin/notecraft" >/dev/null
-tar -tzf "$ARCHIVE" | grep -Fx "notecraft-$VERSION-linux-$ARCH/share/applications/com.alientechsoftware.notecraft.desktop" >/dev/null
-tar -tzf "$ARCHIVE" | grep -Fx "notecraft-$VERSION-linux-$ARCH/share/icons/hicolor/256x256/apps/com.alientechsoftware.notecraft.png" >/dev/null
+tar -tzf "$ARCHIVE" | grep -Fx "notecraft-$VERSION-linux-$ARCH/share/applications/it.v01.notecraft.desktop" >/dev/null
+tar -tzf "$ARCHIVE" | grep -Fx "notecraft-$VERSION-linux-$ARCH/share/icons/hicolor/256x256/apps/it.v01.notecraft.png" >/dev/null
 tar -tzf "$ARCHIVE" | grep -E "share/doc/notecraft/mcp.json$" >/dev/null || { echo "the MCP client configuration is not in the package" >&2; exit 1; }
 echo "linux packaging smoke test passed: $ARCHIVE"

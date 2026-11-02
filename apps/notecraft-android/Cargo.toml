@@ -41,7 +41,7 @@ rfd_android = { package = "notecraft-rfd-android-stub", path = "../../vendor/rfd
 # Built with `cargo xtask android` (cargo-apk underneath). The stylus is read through the
 # touch force that winit reports for every contact, see crates/ui-egui/src/stylus.rs.
 [package.metadata.android]
-package = "com.alientechsoftware.notecraft"
+package = "it.v01.notecraft"
 apk_name = "NoteCraft"
 build_targets = ["aarch64-linux-android"]
 resources = "res"

@@ -89,9 +89,9 @@ It uses libgit2 with OpenSSL built from source, so building for Android needs `p
 ## Export
 
 File, Export writes a notebook as a ZIP. There is no save dialog on Android yet, so the ZIP goes
-to `Android/data/com.alientechsoftware.notecraft/files/Exports` on the tablet's storage, and the
+to `Android/data/it.v01.notecraft/files/Exports` on the tablet's storage, and the
 status bar says where. Copy it off with
-`adb pull /sdcard/Android/data/com.alientechsoftware.notecraft/files/Exports`.
+`adb pull /sdcard/Android/data/it.v01.notecraft/files/Exports`.
 
 ## Icon
 

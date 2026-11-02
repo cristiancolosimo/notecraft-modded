@@ -58,7 +58,7 @@ pub enum Act {
 
 /// The entries down the left side, in the order the Office apps use. The flag says whether
 /// it works.
-pub const SIDE: [(&str, bool); 11] = [
+pub const SIDE: [(&str, bool); 10] = [
     ("Info", true),
     ("New", true),
     ("Open", true),
@@ -69,12 +69,7 @@ pub const SIDE: [(&str, bool); 11] = [
     ("Export", true),
     ("Account", false),
     ("Options", true),
-    ("About", true),
 ];
-
-/// Where NoteCraft comes from. Named once, here, so there is one place to change it.
-pub const REPOSITORY: &str = "https://github.com/AlienTechSoftware/notecraft";
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Draws the File screen over the whole window. Returns what the user asked for.
 pub fn show(
@@ -104,7 +99,6 @@ pub fn show(
                     "Open" => open_page(ui, recent, notebooks_folder, show_path, t, &mut acts),
                     "Sync" => sync_page(ui, sync, t, &mut acts),
                     "Export" => export_page(ui, notebooks, show_path, t, &mut acts),
-                    "About" => about_page(ui, telemetry_root, session_id, t),
                     "Options" => options_page(ui, telemetry_root, telemetry_level, session_id, show_perf, fps_limit, t, &mut acts),
                     _ => info_page(ui, notebooks, notebooks_folder, show_path, t, &mut acts),
                 }
@@ -441,62 +435,6 @@ fn open_action(ui: &mut Ui, label: &str, width: f32, height: f32, t: &Tokens, pr
     response
 }
 
-/// About: what this is, which version, and where the code lives.
-fn about_page(ui: &mut Ui, telemetry_root: &std::path::Path, session_id: Option<&str>, t: &Tokens) {
-    heading(ui, "About NoteCraft", t);
-    ui.horizontal_top(|ui| {
-        ui.add(egui::Image::from_bytes("bytes://notecraft-logo", crate::LOGO_PNG).fit_to_exact_size(vec2(64.0, 64.0)));
-        ui.add_space(8.0);
-        ui.vertical(|ui| {
-            ui.label(egui::RichText::new("NoteCraft").size(20.0).color(t.accent));
-            ui.label(egui::RichText::new(format!("Version {VERSION} (alpha)")).size(12.0).color(t.muted));
-            ui.label(
-                egui::RichText::new("Note taking and organization in pure Rust. Your notes are plain folders and files.").size(12.5).color(t.text),
-            );
-        });
-    });
-    ui.add_space(14.0);
-    ui.label(egui::RichText::new("The code").size(14.0).color(t.strong));
-    ui.hyperlink_to(REPOSITORY, REPOSITORY);
-    ui.add_space(4.0);
-    ui.label(
-        egui::RichText::new(
-            "Issues, the roadmap and the documentation are all there. Nothing in NoteCraft talks to it, or to any other service, by itself.",
-        )
-        .size(11.5)
-        .color(t.muted),
-    );
-    ui.add_space(14.0);
-    ui.label(egui::RichText::new("Licence").size(14.0).color(t.strong));
-    ui.label(
-        egui::RichText::new("MIT or Apache-2.0, at your option. The koala artwork is not covered by it; see ATTRIBUTION.md.")
-            .size(11.5)
-            .color(t.muted),
-    );
-    ui.add_space(14.0);
-    ui.label(egui::RichText::new("Built with").size(14.0).color(t.strong));
-    ui.hyperlink_to("egui and eframe", "https://github.com/emilk/egui");
-    ui.label(
-        egui::RichText::new("The window, drawn on the GPU. The icons are drawn in code. The logo is the only picture.").size(11.5).color(t.muted),
-    );
-    ui.add_space(14.0);
-    ui.label(egui::RichText::new("OneNote import").size(14.0).color(t.strong));
-    ui.horizontal_wrapped(|ui| {
-        ui.label(egui::RichText::new("Powered by").size(11.5).color(t.muted));
-        ui.hyperlink_to("OfficeIMO", "https://github.com/EvotecIT/OfficeIMO");
-        ui.label(egui::RichText::new("under the").size(11.5).color(t.muted));
-        ui.hyperlink_to("MIT license", "https://github.com/EvotecIT/OfficeIMO/blob/master/LICENSE");
-        ui.label(egui::RichText::new("— many thanks to its authors and contributors.").size(11.5).color(t.muted));
-    });
-    ui.add_space(14.0);
-    ui.label(egui::RichText::new("Local diagnostics").strong().size(14.0).color(t.strong));
-    ui.label(egui::RichText::new("Logs and telemetry stay on this device. NoteCraft does not send them automatically.").size(11.5).color(t.muted));
-    if let Some(id) = session_id {
-        ui.label(egui::RichText::new(format!("Session ID: {id}")).strong().monospace().size(11.5).color(t.text));
-    }
-    ui.label(egui::RichText::new(format!("Logging folder: {}", telemetry_root.display())).strong().size(11.5).color(t.text));
-}
-
 fn options_page(
     ui: &mut Ui,
     root: &std::path::Path,
@@ -599,36 +537,8 @@ mod tests {
     #[test]
     fn the_side_entries_say_what_works() {
         let built: Vec<&str> = SIDE.iter().filter(|(_, b)| *b).map(|(n, _)| *n).collect();
-        assert_eq!(built, vec!["Info", "New", "Open", "Sync", "Export", "Options", "About"]);
-        assert_eq!(SIDE.len(), 11, "the rest are listed and marked, not hidden");
+        assert_eq!(built, vec!["Info", "New", "Open", "Sync", "Export", "Options"]);
+        assert_eq!(SIDE.len(), 10, "the rest are listed and marked, not hidden");
         assert!(SIDE.iter().any(|(n, b)| *n == "Print" && !*b));
-    }
-
-    #[test]
-    fn about_says_where_the_code_lives_and_asks_for_nothing() {
-        let t = crate::theme::Theme::DEFAULT.tokens();
-        let ctx = egui::Context::default();
-        let mut acts = Vec::new();
-        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
-            acts = show(
-                ui,
-                &[],
-                &[],
-                "C:/notebooks",
-                "About",
-                &|p| p.to_string_lossy().into_owned(),
-                std::path::Path::new("C:/telemetry"),
-                "none",
-                None,
-                &mut crate::syncing::Syncing::load(&notecraft_store::Settings::at(std::env::temp_dir().join("notecraft-about-test.toml"))),
-                false,
-                0,
-                &t,
-            );
-        });
-        out.textures_delta.clear();
-        assert_eq!(acts, Vec::new(), "the About page asked for something nobody clicked");
-        assert!(REPOSITORY.starts_with("https://github.com/"), "{REPOSITORY}");
-        assert!(!VERSION.is_empty());
     }
 }

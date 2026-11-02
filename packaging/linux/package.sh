@@ -51,12 +51,12 @@ fi
 BIN="${CARGO_TARGET_DIR:-$ROOT/target}/release/notecraft"
 [ -x "$BIN" ] || { echo "release binary not found: $BIN" >&2; exit 1; }
 install -Dm755 "$BIN" "$STAGE/usr/bin/notecraft"
-install -Dm644 "$ROOT/packaging/linux/com.alientechsoftware.notecraft.desktop" \
-    "$STAGE/usr/share/applications/com.alientechsoftware.notecraft.desktop"
+install -Dm644 "$ROOT/packaging/linux/it.v01.notecraft.desktop" \
+    "$STAGE/usr/share/applications/it.v01.notecraft.desktop"
 
 for size in 32 64 128 256 512; do
     install -Dm644 "$ROOT/assets/brand/notecraft-$size.png" \
-        "$STAGE/usr/share/icons/hicolor/${size}x${size}/apps/com.alientechsoftware.notecraft.png"
+        "$STAGE/usr/share/icons/hicolor/${size}x${size}/apps/it.v01.notecraft.png"
 done
 mkdir -p "$STAGE/usr/share/doc/notecraft"
 install -Dm644 "$ROOT/LICENSE-MIT" "$STAGE/usr/share/doc/notecraft/LICENSE-MIT"
@@ -91,8 +91,8 @@ if has_format appimage; then
     APPDIR="$WORK/NoteCraft.AppDir"
     cp -R "$STAGE" "$APPDIR"
     install -Dm755 "$ROOT/packaging/linux/AppRun" "$APPDIR/AppRun"
-    install -Dm644 "$ROOT/packaging/linux/com.alientechsoftware.notecraft.desktop" "$APPDIR/com.alientechsoftware.notecraft.desktop"
-    install -Dm644 "$ROOT/assets/brand/notecraft-256.png" "$APPDIR/com.alientechsoftware.notecraft.png"
+    install -Dm644 "$ROOT/packaging/linux/it.v01.notecraft.desktop" "$APPDIR/it.v01.notecraft.desktop"
+    install -Dm644 "$ROOT/assets/brand/notecraft-256.png" "$APPDIR/it.v01.notecraft.png"
     (cd "$DIST" && appimagetool "$APPDIR" "$DIST/$BASENAME.AppImage")
     echo "wrote $DIST/$BASENAME.AppImage"
 fi
