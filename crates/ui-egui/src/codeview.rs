@@ -420,7 +420,8 @@ fn office_text(path: &Path) -> (String, bool) {
         names.push(name.clone());
         let mut bytes = Vec::new();
         use std::io::Read;
-        let _ = item.read_to_end(&mut bytes);
+        // A zip bomb must not fill memory: the view never shows more than MAX_SHOWN anyway.
+        let _ = item.by_ref().take(MAX_SHOWN as u64 * 4).read_to_end(&mut bytes);
         let xml = String::from_utf8_lossy(&bytes);
         let mut in_tag = false;
         for ch in xml.chars() {
