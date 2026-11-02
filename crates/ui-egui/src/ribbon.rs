@@ -681,7 +681,7 @@ fn quick_popup(ui: &mut Ui, anchor: &egui::Response, id: &str, content: impl FnO
             .order(egui::Order::Foreground)
             .fixed_pos(anchor.rect.left_bottom())
             .show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style()).fill(t.panel).corner_radius(8.0).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
+                egui::Frame::popup(ui.style()).corner_radius(8.0).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
                     ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                     done = content(ui);
                 });
@@ -1816,7 +1816,7 @@ fn paper_popup(ui: &mut Ui, anchor: &egui::Response, open_id: egui::Id, view: &V
             .order(egui::Order::Foreground)
             .fixed_pos(anchor.rect.left_bottom())
             .show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style()).fill(t.panel).corner_radius(8.0).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
+                egui::Frame::popup(ui.style()).corner_radius(8.0).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
                     ui.spacing_mut().item_spacing = vec2(8.0, 5.0);
                     let shelf = |ui: &mut Ui, title: &str, papers: &[RuleLines], acts: &mut Vec<Act>, picked: &mut bool| {
                         ui.label(egui::RichText::new(title).strong().color(t.text));
