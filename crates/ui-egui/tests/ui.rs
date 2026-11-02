@@ -1873,6 +1873,50 @@ fn the_equation_button_offers_equations_and_puts_the_one_picked_in_the_page() {
     assert_eq!(h.query_all_by_label("Equation: Matrix").count(), 0, "the list closed after a pick");
 }
 
+/// Where the system has no file dialog (Android), Insert, Picture lists the device's pictures in
+/// the app itself: choose one, and it goes into the page like any picture does.
+#[test]
+fn a_picture_is_chosen_from_the_apps_own_list_where_there_is_no_file_dialog() {
+    use notecraft_ui_egui::mediapicker::MediaAccess;
+    struct Photos(std::path::PathBuf);
+    impl MediaAccess for Photos {
+        fn granted(&self) -> bool {
+            true
+        }
+        fn request(&self) {}
+        fn roots(&self) -> Vec<std::path::PathBuf> {
+            vec![self.0.clone()]
+        }
+    }
+    let (t, mut app, s) = sample_app("ui-media-picker");
+    let photos = t.path().join("DCIM");
+    std::fs::create_dir_all(&photos).expect("photos folder");
+    std::fs::write(photos.join("holiday.png"), LOGO_PNG).expect("photo");
+    app.set_media_access(std::sync::Arc::new(Photos(photos)));
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = harness(app, LIGHT);
+    settle(&mut h);
+    let body = h.state().page_rect().expect("the page");
+    ask(&mut h, "ui.click", json!({"x": body.min.x + 300.0, "y": body.min.y + 40.0, "button": "right"})).expect("right click");
+    for _ in 0..6 {
+        pump(&mut h);
+    }
+    h.get_by_label("Picture from a file").click();
+    settle(&mut h);
+    assert!(h.query_all_by_label("Choose a picture").count() >= 1, "the app's own list opened");
+    assert!(h.query_all_by_label_contains("holiday.png").count() >= 1, "and it lists the picture");
+    h.get_by_label_contains("holiday.png").click();
+    settle(&mut h);
+    h.get_by_label("Use this picture").click();
+    settle(&mut h);
+    h.get_by_label("Insert the picture").click();
+    settle(&mut h);
+    assert!(
+        s.md_page.join("assets").join("holiday.png").exists() || s.md_page.join("holiday.png").exists(),
+        "the picture was copied into the page's folder"
+    );
+}
+
 /// The page has a menu under the right button, with the commands a page needs: paste,
 /// cut, copy, and the things the Insert tab can put there.
 #[test]

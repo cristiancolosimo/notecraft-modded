@@ -35,6 +35,7 @@ pub mod input_language {
 pub mod inkpad;
 pub mod kinetic;
 pub mod mathview;
+pub mod mediapicker;
 pub mod navhistory;
 pub mod pageedit;
 pub mod pagemenu;

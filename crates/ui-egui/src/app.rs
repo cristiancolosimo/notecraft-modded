@@ -48,7 +48,7 @@ const INDENT: f32 = 14.0;
 
 /// Shared title treatment for modal dialogs. Keeping this here makes dialogs use the
 /// same opaque, theme-owned title band instead of inheriting egui's platform-gray title bar.
-fn modal_frame(tokens: &Tokens) -> egui::Frame {
+pub(crate) fn modal_frame(tokens: &Tokens) -> egui::Frame {
     egui::Frame::NONE.fill(tokens.panel).stroke(egui::Stroke::new(1.5, tokens.accent)).inner_margin(egui::Margin::same(16))
 }
 
@@ -395,6 +395,11 @@ enum Dialog {
         dir: PathBuf,
         files: Vec<PathBuf>,
     },
+    /// Choosing a file in the app's own list, where the system has no file dialog (Android).
+    PickMedia {
+        dir: PathBuf,
+        picker: crate::mediapicker::Picker,
+    },
     NewNotebook {
         name: String,
         format: Option<PageFormat>,
@@ -562,6 +567,8 @@ pub struct NoteCraftApp {
     stylus: crate::stylus::Stylus,
     /// Only a pen writes ink (Android); a finger or a mouse does not.
     pen_only: bool,
+    /// What the platform lets the app read of the user's pictures, where there is no file dialog.
+    media: Option<std::sync::Arc<dyn crate::mediapicker::MediaAccess>>,
     /// The performance counter at the top right (File, Options).
     show_perf: bool,
     perf: crate::perf::Perf,
@@ -694,6 +701,7 @@ impl NoteCraftApp {
             stylus: crate::stylus::Stylus::default(),
             sync: crate::syncing::Syncing::load(&settings_for_sync),
             pen_only: false,
+            media: None,
             show_perf: settings_for_sync.get("show_perf").as_deref() == Some("true"),
             perf: crate::perf::Perf::default(),
             soft_keyboard_blocked: false,
@@ -1775,6 +1783,12 @@ impl NoteCraftApp {
     }
 
     /// Lets only the pen write ink: a finger on the page does not draw. For touch screens.
+    /// Gives the app the platform's way to read pictures; from then on Insert, Picture opens the
+    /// app's own list instead of a system file dialog.
+    pub fn set_media_access(&mut self, access: std::sync::Arc<dyn crate::mediapicker::MediaAccess>) {
+        self.media = Some(access);
+    }
+
     pub fn set_pen_only(&mut self, on: bool) {
         self.pen_only = on;
         if on {
@@ -2728,6 +2742,10 @@ impl NoteCraftApp {
                     self.say("Open a page first");
                     return;
                 };
+                if self.media.is_some() {
+                    self.dialog = Some(Dialog::PickMedia { dir, picker: crate::mediapicker::Picker::new(matches!(act, ribbon::Act::AddPicture)) });
+                    return;
+                }
                 let mut picker = rfd::FileDialog::new().set_title(if matches!(act, ribbon::Act::AddPicture) {
                     "Choose a picture"
                 } else {
@@ -4969,6 +4987,20 @@ impl NoteCraftApp {
                     keep = false;
                 } else {
                     self.open_attachment_warning_suppressed = suppress;
+                }
+            }
+            Dialog::PickMedia { dir, picker } => {
+                if let Some(access) = self.media.clone() {
+                    match picker.show(ctx, &access, &self.tokens) {
+                        crate::mediapicker::Outcome::Open => {}
+                        crate::mediapicker::Outcome::Cancel => keep = false,
+                        crate::mediapicker::Outcome::Chosen(file) => {
+                            let dir = dir.clone();
+                            next = Dialog::FileOptions { dir, files: vec![file] };
+                        }
+                    }
+                } else {
+                    keep = false;
                 }
             }
             Dialog::FileOptions { dir, files } => {

@@ -22,6 +22,68 @@ struct Shell {
     android: AndroidApp,
 }
 
+/// Reading the user's pictures: the permission, asked through the Activity, and where they live.
+struct Pictures {
+    app: AndroidApp,
+}
+
+impl Pictures {
+    /// 0 when the Activity holds the permission (`PackageManager.PERMISSION_GRANTED`).
+    fn check(&self, permission: &str) -> bool {
+        use jni::JavaVM;
+        use jni::objects::{JObject, JValue};
+        // SAFETY: the process's JavaVM and the running Activity, valid while `app` lives.
+        let Ok(vm) = (unsafe { JavaVM::from_raw(self.app.vm_as_ptr().cast()) }) else { return false };
+        let activity = unsafe { JObject::from_raw(self.app.activity_as_ptr().cast()) };
+        let Ok(mut env) = vm.attach_current_thread() else { return false };
+        let granted = env
+            .with_local_frame(8, |env| -> jni::errors::Result<bool> {
+                let name = env.new_string(permission)?;
+                let code = env.call_method(&activity, "checkSelfPermission", "(Ljava/lang/String;)I", &[JValue::Object(&name)])?.i()?;
+                Ok(code == 0)
+            })
+            .unwrap_or(false);
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_clear();
+        }
+        granted
+    }
+}
+
+impl notecraft_ui_egui::mediapicker::MediaAccess for Pictures {
+    fn granted(&self) -> bool {
+        // Android 13 and later have their own permission for pictures; before it, storage in general.
+        self.check("android.permission.READ_MEDIA_IMAGES") || self.check("android.permission.READ_EXTERNAL_STORAGE")
+    }
+
+    fn request(&self) {
+        use jni::JavaVM;
+        use jni::objects::{JObject, JValue};
+        // SAFETY: as above.
+        let Ok(vm) = (unsafe { JavaVM::from_raw(self.app.vm_as_ptr().cast()) }) else { return };
+        let activity = unsafe { JObject::from_raw(self.app.activity_as_ptr().cast()) };
+        let Ok(mut env) = vm.attach_current_thread() else { return };
+        let _ = env.with_local_frame(16, |env| -> jni::errors::Result<()> {
+            let names = ["android.permission.READ_MEDIA_IMAGES", "android.permission.READ_EXTERNAL_STORAGE"];
+            let array = env.new_object_array(names.len() as i32, "java/lang/String", JObject::null())?;
+            for (i, name) in names.iter().enumerate() {
+                let value = env.new_string(*name)?;
+                env.set_object_array_element(&array, i as i32, value)?;
+            }
+            env.call_method(&activity, "requestPermissions", "([Ljava/lang/String;I)V", &[JValue::Object(&array), JValue::Int(7)])?;
+            Ok(())
+        });
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_clear();
+        }
+    }
+
+    fn roots(&self) -> Vec<PathBuf> {
+        let shared = PathBuf::from("/storage/emulated/0");
+        ["DCIM", "Pictures", "Download"].iter().map(|d| shared.join(d)).collect()
+    }
+}
+
 /// What the status bar, the navigation bar and the on-screen keyboard cover, in pixels
 /// (left, top, right, bottom), from the window's `WindowInsets` (Android 11 and later).
 fn system_insets_px(app: &AndroidApp) -> Option<[i32; 4]> {
@@ -122,6 +184,8 @@ fn android_main(app: AndroidApp) {
             app.set_frameless(false);
             // A finger scrolls and taps; only the stylus draws, and it draws by default.
             app.set_pen_only(true);
+            // No file dialog here: Insert, Picture opens the app's own list of the device's pictures.
+            app.set_media_access(std::sync::Arc::new(Pictures { app: app_handle.clone() }));
             Ok(Box::new(Shell { app, android: app_handle }))
         }),
     );

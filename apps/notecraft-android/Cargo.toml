@@ -63,6 +63,14 @@ window_soft_input_mode = "adjustResize"
 [[package.metadata.android.uses_permission]]
 name = "android.permission.INTERNET"
 
+# Pictures in shared storage: the permission of Android 13 and later, and the older one before it.
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_MEDIA_IMAGES"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+max_sdk_version = 32
+
 [[package.metadata.android.uses_feature]]
 name = "android.hardware.touchscreen"
 required = true
