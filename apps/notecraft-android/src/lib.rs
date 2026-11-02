@@ -3,9 +3,8 @@
 //! NativeActivity. The notebooks and the settings live in the app's private storage.
 //!
 //! The pen arrives as `egui::Event::Touch { force }`, which `stylus.rs` already reads, so a
-//! stylus writes with its pressure and a finger scrolls and taps. winit reports a force for
-//! every contact, so a finger is read as a light pen; telling the tool types apart needs
-//! the MotionEvent tool type, which winit does not forward (listed in docs/gaps.md).
+//! stylus writes with its pressure. Upstream winit gives every contact a force, so vendor/winit
+//! sends one only for a stylus or eraser tool, and a finger never draws (`set_pen_only`).
 //!
 //! Gaps with a stand-in: the file pickers and the clipboard (vendor/*-android-stub).
 

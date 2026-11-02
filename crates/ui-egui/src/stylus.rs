@@ -61,6 +61,9 @@ pub struct Stylus {
     samples: u64,
     diagnostics: Diagnostics,
     last_event: &'static str,
+    /// The touch the pen is on the glass with now. A finger never sets it, so a caller that
+    /// wants ink from the pen alone can ask [`Stylus::pen_contact`].
+    pen_id: Option<egui::TouchId>,
 }
 
 impl Stylus {
@@ -76,7 +79,7 @@ impl Stylus {
                 egui::Event::Touch { .. } => self.diagnostics.touch_events += 1,
                 _ => {}
             }
-            let egui::Event::Touch { phase, force, .. } = e else { continue };
+            let egui::Event::Touch { phase, force, id, .. } = e else { continue };
             self.last_event = if force.is_some() { "touch with force" } else { "touch without force" };
             if force.is_some() {
                 self.diagnostics.touch_with_force += 1;
@@ -88,6 +91,13 @@ impl Stylus {
             let reported = force.filter(|f| f.is_finite()).map(|f| f.clamp(0.0, 1.0));
             if reported.is_some() {
                 self.pen = true;
+                if *phase == egui::TouchPhase::Start {
+                    self.pen_id = Some(*id);
+                }
+            }
+            // Another contact beside the pen (a palm, a finger) must not move its reading.
+            if self.pen_id.is_some_and(|pen| pen != *id) {
+                continue;
             }
             match phase {
                 egui::TouchPhase::Start | egui::TouchPhase::Move => {
@@ -101,6 +111,7 @@ impl Stylus {
                 egui::TouchPhase::End | egui::TouchPhase::Cancel => {
                     self.down = false;
                     self.pressure = 0.0;
+                    self.pen_id = None;
                 }
             }
         }
@@ -132,6 +143,11 @@ impl Stylus {
         Sample { pressure: self.pressure, pen: true, down: self.down }
     }
 
+    /// A pen is on the glass now, as opposed to a finger or a mouse.
+    pub fn pen_contact(&self) -> bool {
+        self.pen_id.is_some()
+    }
+
     /// The hardest this pen has been pressed in this window, and how many readings have
     /// arrived. Both are for the diagnostic: a pen that only ever reports 0 or 1 is a pen
     /// the platform is not reading properly.
@@ -150,7 +166,33 @@ mod tests {
     use super::*;
 
     fn touch(phase: egui::TouchPhase, force: Option<f32>) -> egui::Event {
-        egui::Event::Touch { device_id: egui::TouchDeviceId(0), id: egui::TouchId(0), phase, pos: egui::Pos2::ZERO, force }
+        touch_id(0, phase, force)
+    }
+
+    fn touch_id(id: u64, phase: egui::TouchPhase, force: Option<f32>) -> egui::Event {
+        egui::Event::Touch { device_id: egui::TouchDeviceId(0), id: egui::TouchId(id), phase, pos: egui::Pos2::ZERO, force }
+    }
+
+    #[test]
+    fn only_a_contact_with_a_force_is_a_pen_contact() {
+        use egui::TouchPhase::{End, Move, Start};
+        let mut s = Stylus::default();
+        s.update(&[touch(Start, None), touch(Move, None)]);
+        assert!(!s.pen_contact(), "a finger sends no force");
+        s.update(&[touch(End, None)]);
+
+        s.update(&[touch_id(1, Start, Some(0.4)), touch_id(1, Move, Some(0.6))]);
+        assert!(s.pen_contact());
+        // A palm or finger beside the pen neither ends the stroke nor changes its pressure.
+        s.update(&[touch_id(2, Start, None), touch_id(2, Move, None), touch_id(2, End, None)]);
+        assert!(s.pen_contact());
+        assert_eq!(s.sample().pressure, 0.6);
+        s.update(&[touch_id(1, End, Some(0.1))]);
+        assert!(!s.pen_contact(), "lifting the pen ends the pen contact");
+
+        // And a finger after the pen is still a finger.
+        s.update(&[touch(Start, None)]);
+        assert!(!s.pen_contact());
     }
 
     #[test]

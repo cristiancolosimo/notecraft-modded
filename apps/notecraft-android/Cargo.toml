@@ -42,7 +42,9 @@ resources = "res"
 
 [package.metadata.android.sdk]
 min_sdk_version = 26
-target_sdk_version = 35
+# 34, not 35: from 35 on the system forces edge-to-edge and ignores adjustResize, which put the
+# keyboard over the page and the status bar over the ribbon.
+target_sdk_version = 34
 
 [package.metadata.android.application]
 label = "NoteCraft"

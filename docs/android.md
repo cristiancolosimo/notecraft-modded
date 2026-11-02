@@ -18,10 +18,12 @@ in `~/Android/Sdk`. The APK is written under `target/release/apk/`. Install it w
 
 ## Pen
 
-winit reports every touch contact as `egui::Event::Touch { force }`, normalised 0 to 1 from the
-MotionEvent pressure. [`stylus.rs`](../crates/ui-egui/src/stylus.rs) already reads that for
-Windows, so a stylus writes with its pressure and the ink code is unchanged. Check real
-readings with the pressure canvas before tuning the curve (see
+The stylus arrives as `egui::Event::Touch { force }`, normalised 0 to 1 from the MotionEvent
+pressure. [`stylus.rs`](../crates/ui-egui/src/stylus.rs) already reads that for Windows, so the
+ink code is unchanged. Upstream winit gives every contact a force, so `vendor/winit` (a copy
+with one change, see its `NOTECRAFT.md`) sends one only for the stylus and eraser tools. A finger
+then has no force, `Stylus::pen_contact` is false, and `set_pen_only` makes the ink layer ignore
+it: only the pen draws. Check real readings with the pressure canvas before tuning the curve (see
 [ink-and-pressure.md](ink-and-pressure.md)).
 
 ## Icon

@@ -404,8 +404,8 @@ it is fixed and tested, not when it is promised.
   arrives as touch force, the same path as Windows. Known gaps, each with a stand-in that says
   so in the log: no file pickers (`vendor/rfd-android-stub`: import, attach, picture, export
   and open-folder do nothing), no clipboard pictures or HTML (`vendor/arboard-android-stub`), no
-  control channel or telemetry, no way to tell a finger from a pen (winit gives every contact a
-  force and does not forward the MotionEvent tool type), no stylus button or eraser end, and
+  control channel or telemetry, no stylus button or eraser end, a finger cannot scroll while a
+  drawing tool is selected (the ink layer takes the touch and ignores it), and
   "open file" / "show folder" call `xdg-open`, which Android does not have.
 - **Coverage is 87.8% of lines** (measured 2026-10-17); window start-up and `app.rs` are the weakest.
 - **Control key file permissions on Windows** rely on the user folder's access rules.

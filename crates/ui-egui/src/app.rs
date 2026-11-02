@@ -563,6 +563,8 @@ pub struct NoteCraftApp {
     ribbon_tab: String,
     /// What the pen is reporting, where the platform reports anything.
     stylus: crate::stylus::Stylus,
+    /// Only a pen writes ink (Android); a finger or a mouse does not.
+    pen_only: bool,
     /// Where the page's words were drawn last frame, which is where its ink goes.
     page_rect: Option<egui::Rect>,
     /// What the pointer does on the page (the Draw tab).
@@ -685,6 +687,7 @@ impl NoteCraftApp {
             code: crate::codeview::State::default(),
             ribbon_tab: "Home".to_string(),
             stylus: crate::stylus::Stylus::default(),
+            pen_only: false,
             page_rect: None,
             pointer: ribbon::Pointer::Write,
             rack,
@@ -1735,6 +1738,11 @@ impl NoteCraftApp {
 
     /// Says that the window has no frame of the system's own, so this window draws its buttons
     /// and takes care of moving and resizing it. The program calls this when it asked for no frame.
+    /// Lets only the pen write ink: a finger on the page does not draw. For touch screens.
+    pub fn set_pen_only(&mut self, on: bool) {
+        self.pen_only = on;
+    }
+
     pub fn set_frameless(&mut self, on: bool) {
         self.frameless = on;
     }
@@ -4135,6 +4143,7 @@ impl NoteCraftApp {
         // The drawing on this page is lent to the block that holds it, and written back
         // once the page's borrow is over.
         let (pen, pressure) = (self.pen(), self.stylus.sample().pressure);
+        let (pen_only, stylus_in_contact) = (self.pen_only, self.stylus.pen_contact());
         let mut pad = self.pad.take();
         let mut ink_changed = false;
         let mut page_rect = None;
@@ -4297,7 +4306,8 @@ impl NoteCraftApp {
                                     egui::Rect::from_min_max(egui::pos2(ui.max_rect().min.x, top.y), egui::pos2(ui.max_rect().max.x, top.y + want));
                                 page_rect = Some(body);
                                 if let Some(pad) = pad.as_mut() {
-                                    ink_changed |= crate::inkpad::show(ui, body, pad, pen, pressure, &tokens, zoom_scale);
+                                    ink_changed |=
+                                        crate::inkpad::show(ui, body, pad, pen, pressure, !pen_only || stylus_in_contact, &tokens, zoom_scale);
                                 }
                                 // The page's own right-click menu. No widget is laid
                                 // over the page for it: a widget that senses clicks would

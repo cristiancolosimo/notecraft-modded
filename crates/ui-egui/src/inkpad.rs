@@ -210,7 +210,7 @@ const HANDLE: f32 = 9.0;
 /// Draws a page's ink over the page, and takes what the pen does to it. `body` is the
 /// rectangle the page's words were drawn in; the ink is kept in that rectangle's own
 /// coordinates. Returns true when the ink changed.
-pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f32, t: &Tokens, zoom: f32) -> bool {
+pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f32, ink_allowed: bool, t: &Tokens, zoom: f32) -> bool {
     use crate::ribbon::Pointer;
     let _ = t;
     // Painting on the layer, not through the ui, so a stroke that runs past the words is
@@ -268,7 +268,8 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
 
     // Not egui's drag, which only begins once the pointer has travelled far enough: a pen
     // put down and lifted in one place is a dot, and a dot is ink.
-    let down = resp.is_pointer_button_down_on();
+    // `ink_allowed` is false for a finger when only the pen may write.
+    let down = ink_allowed && resp.is_pointer_button_down_on();
     let at = ui.ctx().pointer_interact_pos().filter(|p| body.contains(*p)).map(|p| ((p.x - body.min.x) / zoom, (p.y - body.min.y) / zoom));
     let mut changed = false;
     match pen.pointer {
