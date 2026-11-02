@@ -141,37 +141,54 @@ fn data_dir(app: &AndroidApp) -> PathBuf {
     app.internal_data_path().unwrap_or_else(|| PathBuf::from("/data/local/tmp/notecraft"))
 }
 
-/// Points libgit2's OpenSSL at the certificates the system trusts. Android keeps them one file each
-/// under names OpenSSL does not look for (an older hash of the subject), so a directory of them is
-/// of no use to it: they are gathered into one bundle, kept beside the settings, and that is used.
-fn trust_system_certificates(data: &Path) {
-    let mut bundle = String::new();
+/// Gives libgit2 the certificates the system trusts. Android keeps them one file each under names
+/// OpenSSL does not look for, and the OpenSSL inside libgit2 cannot load a file of them either, so each
+/// one is read here and handed over as a certificate, in memory.
+fn trust_system_certificates() {
+    let mut added = 0;
     for dir in ["/apex/com.android.conscrypt/cacerts", "/system/etc/security/cacerts"] {
         let Ok(entries) = std::fs::read_dir(dir) else { continue };
-        let mut files: Vec<PathBuf> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
-        files.sort();
-        for file in files {
-            if let Ok(pem) = std::fs::read_to_string(&file)
-                && let Some(from) = pem.find("-----BEGIN CERTIFICATE-----")
-            {
-                bundle.push_str(&pem[from..]);
-                if !bundle.ends_with('\n') {
-                    bundle.push('\n');
-                }
+        for entry in entries.filter_map(|e| e.ok()) {
+            // Each file is the certificate in PEM, with a text dump of it after.
+            let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
+            let Some(from) = text.find("-----BEGIN CERTIFICATE-----") else { continue };
+            let Some(len) = text[from..].find("-----END CERTIFICATE-----") else { continue };
+            let pem = &text[from..from + len + "-----END CERTIFICATE-----".len()];
+            if add_certificate(pem) {
+                added += 1;
             }
         }
-        if !bundle.is_empty() {
+        if added > 0 {
             break;
         }
     }
-    let file = data.join("cacerts.pem");
-    if bundle.is_empty() || (std::fs::read_to_string(&file).ok().as_deref() != Some(&bundle) && std::fs::write(&file, &bundle).is_err()) {
-        log::error!("no system certificates could be gathered; HTTPS sync will not verify servers");
-        return;
+    if added == 0 {
+        log::error!("no system certificates could be given to libgit2; HTTPS sync will not verify servers");
+    } else {
+        log::info!("{added} system certificates trusted for sync");
     }
-    // SAFETY: called once at start-up, before libgit2 is used from any other thread.
-    if let Err(e) = unsafe { git2::opts::set_ssl_cert_file(&file) } {
-        log::error!("cannot give libgit2 the system certificates: {e}");
+}
+
+/// Adds one PEM certificate to the ones libgit2 trusts. Says whether it went in.
+fn add_certificate(pem: &str) -> bool {
+    let Ok(len) = std::ffi::c_int::try_from(pem.len()) else { return false };
+    // SAFETY: the buffer outlives the memory BIO; the certificate is freed after libgit2, which takes its
+    // own reference to it, has had it. libgit2 is started first and nothing else uses it yet.
+    unsafe {
+        libgit2_sys::init();
+        let bio = openssl_sys::BIO_new_mem_buf(pem.as_ptr().cast(), len);
+        if bio.is_null() {
+            return false;
+        }
+        let cert = openssl_sys::PEM_read_bio_X509(bio, std::ptr::null_mut(), None, std::ptr::null_mut());
+        openssl_sys::BIO_free_all(bio);
+        if cert.is_null() {
+            openssl_sys::ERR_clear_error();
+            return false;
+        }
+        let added = libgit2_sys::git_libgit2_opts(libgit2_sys::GIT_OPT_ADD_SSL_X509_CERT as std::ffi::c_int, cert) == 0;
+        openssl_sys::X509_free(cert);
+        added
     }
 }
 
@@ -189,7 +206,7 @@ fn open_session(data: &Path) -> Result<Session, String> {
 fn android_main(app: AndroidApp) {
     android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Debug).with_tag("NoteCraft"));
     // Sync talks HTTPS with the system's trusted certificates.
-    trust_system_certificates(&data_dir(&app));
+    trust_system_certificates();
     // Exports go to the app's folder on shared storage, readable over USB and by adb
     // (there is no save dialog yet).
     rfd_android::set_save_dir(app.external_data_path().unwrap_or_else(|| data_dir(&app)).join("Exports"));

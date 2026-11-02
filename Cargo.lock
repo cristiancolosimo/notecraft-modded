@@ -2703,6 +2703,7 @@ dependencies = [
  "image",
  "log",
  "notecraft-engine",
+ "notecraft-mcp",
  "notecraft-store",
  "notecraft-ui-egui",
  "raw-window-handle",
@@ -2722,11 +2723,13 @@ dependencies = [
  "egui",
  "git2",
  "jni 0.21.1",
+ "libgit2-sys",
  "log",
  "notecraft-engine",
  "notecraft-rfd-android-stub",
  "notecraft-store",
  "notecraft-ui-egui",
+ "openssl-sys",
  "winit",
 ]
 

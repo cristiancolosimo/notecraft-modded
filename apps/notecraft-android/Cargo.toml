@@ -34,8 +34,10 @@ winit = { version = "0.30", default-features = false, features = ["android-nativ
 android-activity = { version = "0.6", features = ["native-activity"] }
 android_logger = "0.15"
 jni = "0.21"
-# Only to point libgit2 at Android's certificate folder (its OpenSSL is built from source).
+# Only to hand libgit2 Android's trusted certificates (its OpenSSL is built from source and cannot read them from the system folder).
 git2 = { version = "0.21", default-features = false }
+openssl-sys = "0.9"
+libgit2-sys = "0.18"
 rfd_android = { package = "notecraft-rfd-android-stub", path = "../../vendor/rfd-android-stub" }
 
 # Built with `cargo xtask android` (cargo-apk underneath). The stylus is read through the
