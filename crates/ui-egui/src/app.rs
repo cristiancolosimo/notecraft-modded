@@ -5126,7 +5126,10 @@ impl NoteCraftApp {
                         let r = ui.text_edit_singleline(name);
                         // Read Enter before asking for focus again: a new focus request hides the lost focus.
                         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                        r.request_focus();
+                        if !r.has_focus() {
+                            // Once: asking again every frame restarts the on-screen keyboard every frame.
+                            r.request_focus();
+                        }
                         format_picker(ui, format);
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
@@ -5182,7 +5185,10 @@ impl NoteCraftApp {
                         let r = ui.text_edit_singleline(title);
                         // Read Enter before asking for focus again: a new focus request hides the lost focus.
                         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                        r.request_focus();
+                        if !r.has_focus() {
+                            // Once: asking again every frame restarts the on-screen keyboard every frame.
+                            r.request_focus();
+                        }
                         let what = if *kind == NodeKind::Page { "Format for this page" } else { "Default format for pages below" };
                         ui.label(what);
                         format_picker(ui, format);
@@ -5220,7 +5226,10 @@ impl NoteCraftApp {
                     let r = ui.text_edit_singleline(title);
                     // Read Enter before asking for focus again: a new focus request hides the lost focus.
                     let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                    r.request_focus();
+                    if !r.has_focus() {
+                        // Once: asking again every frame restarts the on-screen keyboard every frame.
+                        r.request_focus();
+                    }
                     ui.horizontal(|ui| {
                         if modal_button(ui, &self.tokens, "Cancel", false).clicked() {
                             keep = false;
