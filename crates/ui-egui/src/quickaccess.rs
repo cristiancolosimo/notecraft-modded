@@ -159,10 +159,11 @@ pub fn show(ui: &mut Ui, config: &mut Config, enabled: Enabled, t: &Tokens) -> (
     }
     // The arrow stays even when the strip is hidden, so it can be brought back.
     let arrow = customize_button(ui, t);
-    egui::Popup::menu(&arrow).show(|ui| {
+    let frame = egui::Frame::NONE.fill(t.panel).stroke(egui::Stroke::new(1.0, t.rule_line)).corner_radius(4.0).inner_margin(egui::Margin::same(4));
+    egui::Popup::menu(&arrow).frame(frame).show(|ui| {
         ui.set_width(floating::MENU_W + 20.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        ui.label(egui::RichText::new("Customize Quick Access Toolbar").strong());
+        ui.label(egui::RichText::new("Customize Quick Access Toolbar").strong().color(t.text));
         ui.add_space(4.0);
         for cmd in Command::ALL {
             if floating::menu_check_row(ui, config.shows(cmd), cmd.label(), t).clicked() {
