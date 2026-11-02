@@ -33,6 +33,12 @@ navigation bar and keyboard), so no button sits under a bar. The ribbon scrolls 
 header switch keeps the on-screen keyboard from opening; it is remembered. The pen draws by
 default (Type brings the caret back), and a finger drag on a drawing page scrolls it.
 
+## Sync
+
+File, Sync keeps the notebooks folder in a Git repository on a server (see [sync.md](sync.md)).
+It uses libgit2 with OpenSSL built from source, so building for Android needs `perl` with the
+`Time::Piece` module (Fedora: `perl-Time-Piece`). The app asks for the INTERNET permission.
+
 ## Export
 
 File, Export writes a notebook as a ZIP. There is no save dialog on Android yet, so the ZIP goes

@@ -407,6 +407,11 @@ it is fixed and tested, not when it is promised.
   control channel or telemetry, no stylus button or eraser end, a finger cannot scroll while a
   drawing tool is selected (the ink layer takes the touch and ignores it), and
   "open file" / "show folder" call `xdg-open`, which Android does not have.
+- **Sync is new** ([sync.md](sync.md)). Checked against a local Git server with a username and
+  token, and against github.com over TLS from a desktop (the connection works; no push was made).
+  Not checked: a push to a real GitHub repository, the TLS certificates on Android, and a very large
+  notebook (the first sync of many attachments). Android syncs only while the app is open, and
+  there is no way yet to resolve a `.conflict-` copy except by hand.
 - **Coverage is 87.8% of lines** (measured 2026-10-17); window start-up and `app.rs` are the weakest.
 - **Control key file permissions on Windows** rely on the user folder's access rules.
 - **Large pages and attachments** are capped but not load tested.

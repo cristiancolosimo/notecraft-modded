@@ -34,6 +34,8 @@ winit = { version = "0.30", default-features = false, features = ["android-nativ
 android-activity = { version = "0.6", features = ["native-activity"] }
 android_logger = "0.15"
 jni = "0.21"
+# Only to point libgit2 at Android's certificate folder (its OpenSSL is built from source).
+git2 = { version = "0.21", default-features = false }
 rfd_android = { package = "notecraft-rfd-android-stub", path = "../../vendor/rfd-android-stub" }
 
 # Built with `cargo xtask android` (cargo-apk underneath). The stylus is read through the
@@ -57,6 +59,9 @@ icon = "@mipmap/ic_launcher"
 [package.metadata.android.application.activity]
 config_changes = "orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode|density"
 window_soft_input_mode = "adjustResize"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
 
 [[package.metadata.android.uses_feature]]
 name = "android.hardware.touchscreen"

@@ -134,3 +134,36 @@ fn an_incomplete_setup_is_refused_and_conflict_copies_are_named_beside_the_file(
     assert_eq!(conflict_name("README", "1234567890"), "README.conflict-1234567");
     assert!(!reachable("https://"), "no host, no connection");
 }
+
+#[test]
+fn a_token_is_only_sent_over_https_or_to_this_computer() {
+    assert!(address_allowed("https://github.com/me/notes.git"));
+    assert!(address_allowed("http://127.0.0.1:8765/notes.git"));
+    assert!(address_allowed("http://localhost/notes.git"));
+    assert!(address_allowed("/srv/notes.git"));
+    assert!(!address_allowed("http://example.test/notes.git"));
+    assert!(!address_allowed("http://127.0.0.1.example.test/notes.git"));
+}
+
+/// Against a real server: `NOTECRAFT_SYNC_URL`, `NOTECRAFT_SYNC_USER` and `NOTECRAFT_SYNC_TOKEN`
+/// name an empty repository. Run with `cargo test -p notecraft-sync -- --ignored`.
+#[test]
+#[ignore = "needs a Git server and its credentials in the environment"]
+fn a_real_server_takes_the_token_and_refuses_a_wrong_one() {
+    let (Ok(url), Ok(user), Ok(token)) =
+        (std::env::var("NOTECRAFT_SYNC_URL"), std::env::var("NOTECRAFT_SYNC_USER"), std::env::var("NOTECRAFT_SYNC_TOKEN"))
+    else {
+        return;
+    };
+    let dir = Dir::new("real");
+    let (a, b) = (device(&dir, "a"), device(&dir, "b"));
+    fs::write(a.join("page.md"), "over the wire").expect("write");
+    let sent = sync(&a, &Config::new(&url, &user, &token)).expect("a syncs with the right token");
+    assert!(sent.pushed, "{sent:?}");
+    let got = sync(&b, &Config::new(&url, &user, &token)).expect("b syncs");
+    assert!(got.pulled, "{got:?}");
+    assert_eq!(fs::read_to_string(b.join("page.md")).expect("note"), "over the wire");
+
+    let wrong = sync(&b, &Config::new(&url, &user, "not-the-token"));
+    assert!(wrong.is_err(), "a wrong token must fail, not loop: {wrong:?}");
+}

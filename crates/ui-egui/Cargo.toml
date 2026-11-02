@@ -19,6 +19,7 @@ notecraft-math = { workspace = true }
 notecraft-formats = { workspace = true }
 notecraft-store = { workspace = true }
 notecraft-engine = { workspace = true }
+notecraft-sync = { workspace = true }
 notecraft-import = { workspace = true }
 egui = { workspace = true }
 egui_extras = { workspace = true }

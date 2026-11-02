@@ -562,6 +562,8 @@ pub struct NoteCraftApp {
     stylus: crate::stylus::Stylus,
     /// Only a pen writes ink (Android); a finger or a mouse does not.
     pen_only: bool,
+    /// Git sync: its form, its timer and what it last did.
+    sync: crate::syncing::Syncing,
     /// A touch tablet: the keyboard switch shows, and the pen draws by default.
     soft_keyboard_blocked: bool,
     /// Where the page's words were drawn last frame, which is where its ink goes.
@@ -628,6 +630,7 @@ impl NoteCraftApp {
     }
 
     pub fn new(session: Session) -> NoteCraftApp {
+        let settings_for_sync = session.settings.clone();
         let mode_pref = session.settings.get("theme_mode").and_then(|v| ModePref::parse(&v)).unwrap_or(ModePref::System);
         let accent = session.settings.get("theme_accent").and_then(|v| Accent::parse(&v)).unwrap_or(Accent::Default);
         let show_source = false;
@@ -686,6 +689,7 @@ impl NoteCraftApp {
             code: crate::codeview::State::default(),
             ribbon_tab: "Home".to_string(),
             stylus: crate::stylus::Stylus::default(),
+            sync: crate::syncing::Syncing::load(&settings_for_sync),
             pen_only: false,
             soft_keyboard_blocked: false,
             page_rect: None,
@@ -1738,6 +1742,33 @@ impl NoteCraftApp {
 
     /// Says that the window has no frame of the system's own, so this window draws its buttons
     /// and takes care of moving and resizing it. The program calls this when it asked for no frame.
+    /// Saves the page being written, then syncs the notebooks folder in the background.
+    fn sync_now(&mut self, ctx: &Context) {
+        if self.editor.as_ref().is_some_and(|e| e.dirty_since.is_some()) {
+            self.save_now();
+        }
+        let root = self.session.root().to_path_buf();
+        self.sync.start(&root, ctx);
+    }
+
+    /// Runs the sync timer, and takes in what a finished sync brought.
+    fn poll_sync(&mut self, ctx: &Context) {
+        let was_idle = !self.sync.busy();
+        if self.sync.form.enabled && was_idle && self.editor.as_ref().is_some_and(|e| e.dirty_since.is_some()) {
+            // Never sync a page half way through a change: the next frame after it is saved will.
+            return;
+        }
+        let root = self.session.root().to_path_buf();
+        if let Some(done) = self.sync.poll(&root, ctx)
+            && done.report.pulled
+        {
+            self.session.refresh();
+            if let Some(dir) = self.editor.as_ref().map(|e| e.dir.clone()) {
+                self.open_path(&dir.to_string_lossy());
+            }
+        }
+    }
+
     /// Lets only the pen write ink: a finger on the page does not draw. For touch screens.
     pub fn set_pen_only(&mut self, on: bool) {
         self.pen_only = on;
@@ -1983,6 +2014,7 @@ impl NoteCraftApp {
                 &telemetry_root,
                 &telemetry_level,
                 session_id.as_deref(),
+                &mut self.sync,
                 &tokens,
             );
         });
@@ -2042,6 +2074,14 @@ impl NoteCraftApp {
                         let _ = crate::telemetry_export::export(&session.path(), &destination);
                     }
                 }
+                backstage::Act::SyncSave(now) => match self.sync.save(&self.session.settings) {
+                    Ok(()) if now => self.sync_now(ui.ctx()),
+                    Ok(()) => self.sync.status = "Saved.".into(),
+                    Err(e) => {
+                        self.sync.status = e;
+                        self.sync.failed = true;
+                    }
+                },
                 backstage::Act::ExportNotebook(path) => {
                     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "notebook".into());
                     if let Some(destination) =
@@ -5817,6 +5857,7 @@ impl NoteCraftApp {
         self.clipboard_keys(ctx);
         self.poll_control(ctx);
         self.poll_import(ctx);
+        self.poll_sync(ctx);
         if !self.event_frames.is_empty() {
             ctx.request_repaint();
         }

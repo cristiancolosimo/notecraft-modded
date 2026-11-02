@@ -87,6 +87,8 @@ fn android(root: &Path, options: &[String]) -> Result<(), String> {
         .envs(signing.into_iter().filter(|(name, _)| std::env::var_os(name).is_none()))
         .args(["apk", "build"])
         .args(&args)
+        // OpenSSL (for sync) is built from source and finds the NDK's `llvm-ar` and `llvm-ranlib` on PATH.
+        .env("PATH", path_with(&ndk_tools(&ndk)))
         .env("ANDROID_HOME", &sdk)
         .env("ANDROID_SDK_ROOT", &sdk)
         .env("ANDROID_NDK_HOME", &ndk)
@@ -94,6 +96,20 @@ fn android(root: &Path, options: &[String]) -> Result<(), String> {
         .status()
         .map_err(|e| format!("cannot run cargo apk (cargo install cargo-apk): {e}"))?;
     if status.success() { Ok(()) } else { Err("cargo apk build failed".into()) }
+}
+
+/// The NDK's compiler and binutils folder (`toolchains/llvm/prebuilt/<host>/bin`).
+fn ndk_tools(ndk: &Path) -> PathBuf {
+    let prebuilt = ndk.join("toolchains").join("llvm").join("prebuilt");
+    let host = std::fs::read_dir(&prebuilt).ok().and_then(|d| d.filter_map(Result::ok).map(|e| e.path()).next()).unwrap_or(prebuilt);
+    host.join("bin")
+}
+
+/// The current PATH with `dir` in front.
+fn path_with(dir: &Path) -> std::ffi::OsString {
+    let mut paths = vec![dir.to_path_buf()];
+    paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+    std::env::join_paths(paths).unwrap_or_default()
 }
 
 /// The dependency names listed in the `[dependencies]` table of a Cargo.toml (not dev or build).

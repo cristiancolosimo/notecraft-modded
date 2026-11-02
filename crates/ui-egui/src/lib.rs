@@ -45,6 +45,7 @@ pub mod ribbon;
 pub mod ribbon_icons;
 pub mod snippets;
 pub mod stylus;
+pub mod syncing;
 pub mod telemetry_export;
 #[cfg(test)]
 mod testing_dir;

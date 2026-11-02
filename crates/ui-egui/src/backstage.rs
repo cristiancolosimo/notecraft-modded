@@ -41,6 +41,8 @@ pub enum Act {
     OpenTelemetryFolder(std::path::PathBuf),
     ClearTelemetry(std::path::PathBuf),
     ExportTelemetry(std::path::PathBuf),
+    /// Keep the sync form and start syncing now (or just keep it, for `false`).
+    SyncSave(bool),
     /// Write this notebook to a ZIP.
     ExportNotebook(std::path::PathBuf),
     ResetPreferences,
@@ -52,13 +54,14 @@ pub enum Act {
 
 /// The entries down the left side, in the order the Office apps use. The flag says whether
 /// it works.
-pub const SIDE: [(&str, bool); 10] = [
+pub const SIDE: [(&str, bool); 11] = [
     ("Info", true),
     ("New", true),
     ("Open", true),
     ("Save a Copy", false),
     ("Print", false),
     ("Share", false),
+    ("Sync", true),
     ("Export", true),
     ("Account", false),
     ("Options", true),
@@ -80,6 +83,7 @@ pub fn show(
     telemetry_root: &std::path::Path,
     telemetry_level: &str,
     session_id: Option<&str>,
+    sync: &mut crate::syncing::Syncing,
     t: &Tokens,
 ) -> Vec<Act> {
     let mut acts = Vec::new();
@@ -92,6 +96,7 @@ pub fn show(
                 match page {
                     "New" => new_page(ui, notebooks_folder, t, &mut acts),
                     "Open" => open_page(ui, recent, notebooks_folder, show_path, t, &mut acts),
+                    "Sync" => sync_page(ui, sync, t, &mut acts),
                     "Export" => export_page(ui, notebooks, show_path, t, &mut acts),
                     "About" => about_page(ui, telemetry_root, session_id, t),
                     "Options" => options_page(ui, telemetry_root, telemetry_level, session_id, t, &mut acts),
@@ -219,6 +224,55 @@ fn info_page(ui: &mut Ui, notebooks: &[Node], folder: &str, show_path: &dyn Fn(&
         egui::RichText::new("Online notebooks (OneDrive, SharePoint) are not built. A notebook in a folder your sync tool watches is synced by it.")
             .size(11.5)
             .color(t.muted),
+    );
+}
+
+/// Sync: the notebooks folder kept in a Git repository on a server.
+fn sync_page(ui: &mut Ui, sync: &mut crate::syncing::Syncing, t: &Tokens, acts: &mut Vec<Act>) {
+    heading(ui, "Sync with a Git server", t);
+    ui.label(
+        egui::RichText::new(
+            "The notebooks folder is kept in a Git repository. Use a GitHub address with a personal access token (the username is your GitHub name), or any Git server that takes a username and a token over HTTPS. Nothing is sent until you turn this on.",
+        )
+        .color(t.muted),
+    );
+    ui.add_space(8.0);
+    egui::Grid::new("sync-form").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+        ui.label("Repository address");
+        ui.add(egui::TextEdit::singleline(&mut sync.form.url).hint_text("https://github.com/you/notes.git").desired_width(420.0));
+        ui.end_row();
+        ui.label("Username");
+        ui.add(egui::TextEdit::singleline(&mut sync.form.username).desired_width(420.0));
+        ui.end_row();
+        ui.label("Token");
+        ui.add(egui::TextEdit::singleline(&mut sync.form.token).password(true).hint_text("personal access token").desired_width(420.0));
+        ui.end_row();
+        ui.label("Minutes between syncs");
+        ui.add(egui::TextEdit::singleline(&mut sync.form.minutes).desired_width(80.0));
+        ui.end_row();
+    });
+    ui.add_space(6.0);
+    ui.checkbox(&mut sync.form.enabled, "Sync by itself while NoteCraft is open and the server can be reached");
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        if open_action(ui, "Save", 110.0, 32.0, t, false).clicked() {
+            acts.push(Act::SyncSave(false));
+        }
+        if open_action(ui, if sync.busy() { "Syncing..." } else { "Sync now" }, 150.0, 32.0, t, true).clicked() && !sync.busy() {
+            acts.push(Act::SyncSave(true));
+        }
+    });
+    ui.add_space(8.0);
+    if !sync.status.is_empty() {
+        ui.label(egui::RichText::new(&sync.status).color(if sync.failed { egui::Color32::from_rgb(0xe0, 0x5a, 0x4f) } else { t.muted }));
+    }
+    ui.add_space(8.0);
+    ui.label(
+        egui::RichText::new(
+            "If the same file was changed on two devices, nothing is lost: this device keeps its version and the other one is saved beside it as name.conflict-xxxxxxx. The token is kept in its own file next to the settings, not in the settings file.",
+        )
+        .size(11.5)
+        .color(t.muted),
     );
 }
 
@@ -496,8 +550,8 @@ mod tests {
     #[test]
     fn the_side_entries_say_what_works() {
         let built: Vec<&str> = SIDE.iter().filter(|(_, b)| *b).map(|(n, _)| *n).collect();
-        assert_eq!(built, vec!["Info", "New", "Open", "Export", "Options", "About"]);
-        assert_eq!(SIDE.len(), 10, "the rest are listed and marked, not hidden");
+        assert_eq!(built, vec!["Info", "New", "Open", "Sync", "Export", "Options", "About"]);
+        assert_eq!(SIDE.len(), 11, "the rest are listed and marked, not hidden");
         assert!(SIDE.iter().any(|(n, b)| *n == "Print" && !*b));
     }
 
@@ -517,6 +571,7 @@ mod tests {
                 std::path::Path::new("C:/telemetry"),
                 "none",
                 None,
+                &mut crate::syncing::Syncing::load(&notecraft_store::Settings::at(std::env::temp_dir().join("notecraft-about-test.toml"))),
                 &t,
             );
         });

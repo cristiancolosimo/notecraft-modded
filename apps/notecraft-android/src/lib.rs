@@ -92,6 +92,9 @@ fn open_session(data: &Path) -> Result<Session, String> {
 #[unsafe(no_mangle)]
 fn android_main(app: AndroidApp) {
     android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Debug).with_tag("NoteCraft"));
+    // Sync talks HTTPS with the system's trusted certificates.
+    // SAFETY: called once at start-up, before libgit2 is used from any other thread.
+    let _ = unsafe { git2::opts::set_ssl_cert_dir("/system/etc/security/cacerts") };
     // Exports go to the app's folder on shared storage, readable over USB and by adb
     // (there is no save dialog yet).
     rfd_android::set_save_dir(app.external_data_path().unwrap_or_else(|| data_dir(&app)).join("Exports"));

@@ -21,6 +21,7 @@ notecraft-text = { path = "crates/text" }
 notecraft-onenote = { path = "crates/onenote" }
 notecraft-import = { path = "crates/import" }
 notecraft-store = { path = "crates/store" }
+notecraft-sync = { path = "crates/sync" }
 notecraft-engine = { path = "crates/engine" }
 notecraft-mcp = { path = "crates/mcp" }
 notecraft-ui-egui = { path = "crates/ui-egui" }

@@ -70,6 +70,17 @@ impl Report {
     }
 }
 
+/// Whether a token may be sent to this address: HTTPS, a local path, or plain HTTP to this very
+/// computer (a development server, or a tunnel to one). Never plain HTTP across a network.
+pub fn address_allowed(url: &str) -> bool {
+    let url = url.trim();
+    if url.is_empty() || url.starts_with("https://") || is_local(url) {
+        return true;
+    }
+    let loopback = ["http://127.0.0.1", "http://localhost", "http://[::1]"];
+    loopback.iter().any(|prefix| url.strip_prefix(prefix).is_some_and(|rest| rest.is_empty() || rest.starts_with(':') || rest.starts_with('/')))
+}
+
 fn is_local(url: &str) -> bool {
     url.starts_with("file://") || !url.contains("://")
 }
