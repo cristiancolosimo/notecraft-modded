@@ -33,6 +33,13 @@ navigation bar and keyboard), so no button sits under a bar. The ribbon scrolls 
 header switch keeps the on-screen keyboard from opening; it is remembered. The pen draws by
 default (Type brings the caret back), and a finger drag on a drawing page scrolls it.
 
+## Full page view
+
+Full page view (the button at the top right of the page, or Draw, Full Page View) hides the
+notebooks and the ribbon and shows a single strip of large targets: back out, undo a stroke,
+Type, Select, Lasso, the eraser, and every pen on the rack as a swatch of its colour. A tab on
+the header brings the ribbon back.
+
 ## Endless page
 
 A page scrolls both ways and has no end down or to the right. It is as wide as its column until

@@ -474,6 +474,100 @@ fn scrolling_ribbon(ui: &mut Ui, id_salt: impl std::hash::Hash + std::fmt::Debug
     }
 }
 
+/// What the window shows in place of the ribbon in full page view: only what taking notes with
+/// a pen needs, in one strip of large targets. Back out of full page, undo a stroke, the pointer
+/// (words, select, eraser) and the pens on the rack, each as a swatch of its colour.
+pub const QUICK_BAR_H: f32 = 56.0;
+
+pub fn quick_draw_bar(ui: &mut Ui, view: &View<'_>, t: &Tokens) -> Vec<Act> {
+    let mut acts = Vec::new();
+    scrolling_ribbon(ui, "quick-draw-bar", t, |ui| {
+        ui.horizontal_centered(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.add_space(6.0);
+            if chip(ui, "Exit full page", "Show the notebooks and the ribbon again", false, t, |p, r| {
+                icons::paint(p, r.shrink(11.0), Icon::ExitFullPage, t.text)
+            })
+            .clicked()
+            {
+                acts.push(Act::ToggleFullPage);
+            }
+            if chip(ui, "Undo stroke", "Take the last stroke back", false, t, |p, r| icons::paint(p, r.shrink(11.0), Icon::Undo, t.text)).clicked() {
+                acts.push(Act::InkUndo);
+            }
+            divider(ui, t);
+            for (label, tip, pointer, icon) in [
+                ("Type", "Put the pointer back to the words and the caret", Pointer::Write, Icon::DirLtr),
+                ("Select", "Pick a stroke up to move, stretch or delete it", Pointer::Pick, Icon::Pointer),
+                ("Lasso Select", "Draw a loop round ink to pick it up", Pointer::Lasso, Icon::Lasso),
+            ] {
+                if chip(ui, label, tip, view.pointer == pointer, t, |p, r| icons::paint(p, r.shrink(11.0), icon, t.text)).clicked() {
+                    acts.push(Act::InkPointer(pointer));
+                }
+            }
+            if chip(ui, "Eraser", "Rub strokes out", view.pointer == Pointer::Erase, t, |p, r| {
+                let body = egui::Rect::from_center_size(r.center(), vec2(22.0, 13.0));
+                p.rect_filled(body, 3.0, crate::theme::mix(t.panel, t.text, 0.75));
+                p.rect_filled(egui::Rect::from_min_max(body.min, egui::pos2(body.min.x + 8.0, body.max.y)), 3.0, t.accent);
+            })
+            .clicked()
+            {
+                acts.push(Act::InkPointer(Pointer::Erase));
+            }
+            divider(ui, t);
+            for (i, nib) in view.rack.iter().enumerate() {
+                let chosen = view.pointer == Pointer::Draw && view.nib == i;
+                let label = format!("{} {}", nib.tool.label(), swatch_name(nib.colour));
+                let tip = format!("{} ({} px)", label, nib.width());
+                let colour = egui::Color32::from_rgb(nib.colour.0, nib.colour.1, nib.colour.2);
+                let marker = nib.tool == notecraft_ink::Tool::Highlighter;
+                if chip(ui, &label, &tip, chosen, t, |p, r| {
+                    let rim = egui::Stroke::new(1.5, crate::theme::mix(t.panel, t.text, 0.55));
+                    if marker {
+                        let bar = egui::Rect::from_center_size(r.center(), vec2(24.0, 12.0));
+                        p.rect_filled(bar, 3.0, colour);
+                        p.rect_stroke(bar, 3.0, rim, egui::StrokeKind::Inside);
+                    } else {
+                        p.circle_filled(r.center(), 11.0, colour);
+                        p.circle_stroke(r.center(), 11.0, rim);
+                    }
+                })
+                .clicked()
+                {
+                    acts.push(Act::InkPen(i));
+                }
+            }
+            ui.add_space(6.0);
+        });
+    });
+    acts
+}
+
+/// One large target in the quick bar: 44 points square, lit when it is the one in use.
+fn chip(ui: &mut Ui, label: &str, tip: &str, on: bool, t: &Tokens, paint: impl FnOnce(&egui::Painter, Rect)) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::click());
+    let painter = ui.painter_at(rect);
+    if on {
+        painter.rect_filled(rect, 8.0, crate::theme::mix(t.panel, t.accent, 0.18));
+        painter.rect_stroke(rect, 8.0, egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
+    } else if resp.hovered() {
+        painter.rect_filled(rect, 8.0, t.row_hover);
+    }
+    paint(&painter, rect);
+    let enabled = ui.is_enabled();
+    let name = label.to_string();
+    resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, on, name.clone()));
+    resp.on_hover_text(tip)
+}
+
+fn divider(ui: &mut Ui, t: &Tokens) {
+    let (rect, _) = ui.allocate_exact_size(vec2(10.0, 44.0), Sense::hover());
+    ui.painter().line_segment(
+        [rect.center_top() + vec2(0.0, 8.0), rect.center_bottom() - vec2(0.0, 8.0)],
+        egui::Stroke::new(1.0, crate::theme::mix(t.panel, t.text, 0.2)),
+    );
+}
+
 /// The tab that is really shown: the Source tab disappears with the source pane.
 pub fn resolve_tab(tab: &str, source: bool, in_table: bool) -> &str {
     if tab == SOURCE_TAB && !source {
@@ -2077,6 +2171,7 @@ fn paint_tool(painter: &egui::Painter, rect: Rect, tool: Tool, colour: Rgb, drop
 fn swatch_name(colour: Rgb) -> &'static str {
     match (colour.0, colour.1, colour.2) {
         (0x20, 0x20, 0x20) => "black",
+        (0xff, 0xff, 0xff) => "white",
         (0xd0, 0x21, 0x21) => "red",
         (0x18, 0x55, 0xc4) => "blue",
         (0x16, 0x7f, 0x3d) => "green",

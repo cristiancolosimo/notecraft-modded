@@ -2524,6 +2524,19 @@ impl NoteCraftApp {
         };
         let format = self.editor.as_ref().map(|e| e.format);
         let mut acts = Vec::new();
+        if self.full_page && self.editor.is_some() {
+            // Full page view: a strip of the pen tools stands in for the ribbon.
+            egui::Panel::top("quick-draw")
+                .exact_size(ribbon::QUICK_BAR_H)
+                .frame(egui::Frame::new().fill(tokens.panel).inner_margin(egui::Margin::symmetric(4, 0)))
+                .show(ui, |ui| {
+                    acts = ribbon::quick_draw_bar(ui, &view, &tokens);
+                });
+            for a in acts {
+                self.ribbon_act(a);
+            }
+            return;
+        }
         egui::Panel::top("ribbon")
             .exact_size(ribbon::GROUP_H + 8.0)
             .frame(egui::Frame::new().fill(tokens.panel).inner_margin(egui::Margin::symmetric(4, 0)))
@@ -2658,7 +2671,11 @@ impl NoteCraftApp {
             }
             ribbon::Act::Symbols => self.dialog = Some(Dialog::Symbols),
             ribbon::Act::Equation(tex) => self.insert_in_page(&format!("${tex}$")),
-            ribbon::Act::Tab(name) => self.ribbon_tab = name,
+            ribbon::Act::Tab(name) => {
+                self.ribbon_tab = name;
+                // A tab is a way back to the ribbon.
+                self.full_page = false;
+            }
             ribbon::Act::Mark(mark) => self.apply_mark(mark),
             ribbon::Act::Block(kind) => self.apply_block_kind(kind),
             ribbon::Act::Insert(what) => match what {

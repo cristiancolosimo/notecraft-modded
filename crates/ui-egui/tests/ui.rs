@@ -4726,6 +4726,39 @@ fn the_ribbon_still_works_with_a_pen_in_hand_and_the_page_scrolled() {
     assert!(h.query_all_by_label("Heading 5").count() >= 1, "the styles list opened under a pen with the page scrolled");
 }
 
+/// Full page view takes the ribbon away and puts a strip of pen tools in its place: back out,
+/// undo, the pointers, and every pen on the rack. A pen picked there is the pen in hand.
+#[test]
+fn full_page_view_swaps_the_ribbon_for_a_quick_draw_bar() {
+    let (_t, mut app, s) = sample_app("ui-quick-bar");
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = sized_harness(app, LIGHT, egui::vec2(2400.0, 800.0));
+    settle(&mut h);
+    h.get_by_label("Draw").click();
+    settle(&mut h);
+    assert_eq!(h.query_all_by_label("Exit full page").count(), 0, "the bar is not there outside full page view");
+    h.get_by_label_contains("Full Page").click();
+    settle(&mut h);
+
+    for tool in
+        ["Exit full page", "Undo stroke", "Type", "Select", "Lasso Select", "Eraser", "Pen black", "Pen white", "Pen red", "Highlighter yellow"]
+    {
+        assert!(h.query_all_by_label(tool).count() >= 1, "{tool} is on the quick bar");
+    }
+    assert_eq!(h.query_all_by_label("Clipboard").count(), 0, "and the ribbon's groups are gone");
+
+    h.get_by_label("Pen red").click();
+    settle(&mut h);
+    let ink = look_at(&mut h)["ink"].clone();
+    assert_eq!(ink["colour"].as_str(), Some("#d02121"), "the red pen is in hand: {ink}");
+    assert_eq!(ink["pointer"].as_str(), Some("draw"));
+
+    h.get_by_label("Exit full page").click();
+    settle(&mut h);
+    assert_eq!(h.query_all_by_label("Exit full page").count(), 0, "the bar goes away again");
+    assert!(h.query_all_by_label("Clipboard").count() >= 1 || h.query_all_by_label("Undo").count() >= 1, "and the ribbon returns");
+}
+
 /// A ribbon wider than the window scrolls: an arrow shows that more is beyond the edge, and
 /// pressing it brings the last group into view.
 #[test]
