@@ -44,7 +44,7 @@ fn open_session(data: &Path) -> Result<Session, String> {
 
 #[unsafe(no_mangle)]
 fn android_main(app: AndroidApp) {
-    android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Info).with_tag("NoteCraft"));
+    android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Debug).with_tag("NoteCraft"));
     let session = match open_session(&data_dir(&app)) {
         Ok(session) => session,
         Err(e) => {
