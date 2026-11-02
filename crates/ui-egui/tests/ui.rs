@@ -2987,7 +2987,9 @@ fn the_code_view_lists_the_pages_files_and_shows_the_one_that_is_picked() {
 #[test]
 fn a_page_keeps_the_paper_and_the_colour_it_was_given() {
     let (_t, app, s) = sample_app("ui-page-paper");
-    let mut h = harness(app, LIGHT);
+    // Wide enough for the whole Draw tab: on a narrower window its last groups are reached by
+    // scrolling the ribbon, which another test covers.
+    let mut h = sized_harness(app, LIGHT, egui::vec2(2000.0, 900.0));
     h.run();
     let page = s.md_page.to_string_lossy().into_owned();
     ask(&mut h, "ui.open", json!({"path": page})).expect("open");
@@ -4722,6 +4724,35 @@ fn the_ribbon_still_works_with_a_pen_in_hand_and_the_page_scrolled() {
         pump(&mut h);
     }
     assert!(h.query_all_by_label("Heading 5").count() >= 1, "the styles list opened under a pen with the page scrolled");
+}
+
+/// A ribbon wider than the window scrolls: an arrow shows that more is beyond the edge, and
+/// pressing it brings the last group into view.
+#[test]
+fn a_ribbon_wider_than_the_window_scrolls_to_its_last_group() {
+    let (_t, mut app, s) = sample_app("ui-ribbon-scroll");
+    app.open_path(&s.md_page.to_string_lossy());
+    let width = 900.0;
+    let mut h = sized_harness(app, LIGHT, egui::vec2(width, 700.0));
+    settle(&mut h);
+    eprintln!(
+        "SEND PAGE {:?} right arrows {}",
+        h.query_all_by_label("Send Page").map(|n| n.rect()).collect::<Vec<_>>(),
+        h.query_all_by_label("Scroll the ribbon right").count()
+    );
+    assert!(h.query_all_by_label("Scroll the ribbon left").count() == 0, "at the start there is nothing to the left");
+    assert!(h.query_all_by_label("Scroll the ribbon right").count() == 1, "but more to the right");
+    assert!(h.get_by_label("Send Page").rect().max.x > width, "the last group starts out of sight");
+    for _ in 0..10 {
+        if h.query_all_by_label("Scroll the ribbon right").count() == 0 {
+            break;
+        }
+        h.get_by_label("Scroll the ribbon right").click();
+        settle(&mut h);
+    }
+    assert!(h.query_all_by_label("Scroll the ribbon right").count() == 0, "the end was reached");
+    assert!(h.query_all_by_label("Scroll the ribbon left").count() == 1, "and the way back is offered");
+    assert!(h.get_by_label("Send Page").rect().max.x <= width + 1.0, "the last group is on the screen");
 }
 
 /// Selecting a box selects everything in it, so the ribbon's marks, styles, Copy and Cut take all of it.

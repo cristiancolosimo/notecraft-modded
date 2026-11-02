@@ -396,32 +396,82 @@ pub fn show(ui: &mut Ui, tab: &str, source: bool, view: &View<'_>, format: Optio
     ui.add_space(3.0);
     let chosen = resolve_tab(tab, source, view.in_table);
     // A tab with many groups is wider than a narrow window: the Draw tab alone has eleven,
-    // as OneNote's does. Rather than clipping the last of them, the groups scroll sideways.
-    // Dragging must not scroll: the controls here are clicked and dragged themselves, and a
-    // drag that scrolled the ribbon instead would take the pen out of the user's hand.
-    egui::ScrollArea::horizontal()
-        .id_salt(("ribbon", chosen))
-        // The ribbon is an Office-style command band, not a document scroller.  A
-        // visible horizontal scrollbar is painted across its bottom edge when a tab
-        // is wider than the window, which looks like a stray black artifact.  Keep
-        // the scroll area (overflow tabs still scroll) but do not paint that bar.
+    // as OneNote's does. Rather than clipping the last of them, the groups scroll sideways: by a
+    // finger, by the arrows at the ends, or by the wheel. No scroll bar is painted: across the
+    // bottom edge of a command band it looks like a stray black artifact.
+    scrolling_ribbon(ui, ("ribbon", chosen), t, |ui| {
+        ui.horizontal_top(|ui| {
+            ui.add_space(4.0);
+            match chosen {
+                "Insert" => insert_tab(ui, view, t, &mut acts),
+                "Draw" => draw_tab(ui, view, t, &mut acts),
+                "History" => history_tab(ui, view, t, &mut acts),
+                "View" => view_tab(ui, source, view, t, &mut acts),
+                TABLE_TAB => table_tab(ui, view, t, &mut acts),
+                SOURCE_TAB => source_tab(ui, format, t, &mut acts),
+                _ => home_tab(ui, view, t, &mut acts),
+            }
+        });
+    });
+    acts
+}
+
+/// The ribbon, scrolled sideways when it is wider than the window: by dragging it with a finger
+/// (a button under the finger does not stop it), and by an arrow at each end that has more
+/// beyond it, so there is a sign that more is there and a way to reach it.
+fn scrolling_ribbon(ui: &mut Ui, id_salt: impl std::hash::Hash + std::fmt::Debug, tokens: &Tokens, add: impl FnOnce(&mut Ui)) {
+    const STEP: f32 = 320.0;
+    let step_id = egui::Id::new("ribbon-scroll-step");
+    let step = ui.data_mut(|d| d.remove_temp::<f32>(step_id)).unwrap_or(0.0);
+    let area = ui.max_rect();
+    // A drag that began on the ribbon moves it, unless a widget (a slider) took the drag.
+    let drag = ui.input(|i| {
+        let began_here = i.pointer.press_origin().is_some_and(|p| area.contains(p));
+        if began_here && i.pointer.is_decidedly_dragging() { i.pointer.delta().x } else { 0.0 }
+    });
+    let drag = if ui.ctx().dragged_id().is_none() { drag } else { 0.0 };
+    let out = egui::ScrollArea::horizontal()
+        .id_salt(id_salt)
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+        // The scroll area's own drag is off: a control here may be dragged itself (a slider), and
+        // the drag that moves the ribbon is the one above, which a control has not taken.
         .scroll_source(egui::scroll_area::ScrollSource { drag: egui::scroll_area::DragScroll::Never, ..egui::scroll_area::ScrollSource::default() })
         .show(ui, |ui| {
-            ui.horizontal_top(|ui| {
-                ui.add_space(4.0);
-                match chosen {
-                    "Insert" => insert_tab(ui, view, t, &mut acts),
-                    "Draw" => draw_tab(ui, view, t, &mut acts),
-                    "History" => history_tab(ui, view, t, &mut acts),
-                    "View" => view_tab(ui, source, view, t, &mut acts),
-                    TABLE_TAB => table_tab(ui, view, t, &mut acts),
-                    SOURCE_TAB => source_tab(ui, format, t, &mut acts),
-                    _ => home_tab(ui, view, t, &mut acts),
-                }
-            });
+            if drag != 0.0 || step != 0.0 {
+                ui.scroll_with_delta(vec2(drag - step, 0.0));
+            }
+            add(ui);
         });
-    acts
+    let hidden = out.content_size.x - out.inner_rect.width();
+    if hidden <= 1.0 {
+        return;
+    }
+    let offset = out.state.offset.x;
+    for (right, more) in [(false, offset > 1.0), (true, offset < hidden - 1.0)] {
+        if !more {
+            continue;
+        }
+        let r = out.inner_rect;
+        let rect = if right {
+            egui::Rect::from_min_max(egui::pos2(r.max.x - 26.0, r.min.y), r.max)
+        } else {
+            egui::Rect::from_min_max(r.min, egui::pos2(r.min.x + 26.0, r.max.y))
+        };
+        let resp = ui.interact(rect, egui::Id::new(("ribbon-scroll-arrow", right)), Sense::click());
+        let painter = ui.painter();
+        painter.rect_filled(rect, 0.0, tokens.panel.gamma_multiply(if resp.hovered() { 0.97 } else { 0.9 }));
+        let (c, dx) = (rect.center(), if right { 4.0 } else { -4.0 });
+        let stroke = egui::Stroke::new(2.0, tokens.accent);
+        painter.line_segment([egui::pos2(c.x - dx, c.y - 8.0), egui::pos2(c.x + dx, c.y)], stroke);
+        painter.line_segment([egui::pos2(c.x + dx, c.y), egui::pos2(c.x - dx, c.y + 8.0)], stroke);
+        let label = if right { "Scroll the ribbon right" } else { "Scroll the ribbon left" };
+        let enabled = ui.is_enabled();
+        resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+        if resp.clicked() {
+            ui.data_mut(|d| d.insert_temp(step_id, if right { STEP } else { -STEP }));
+            ui.ctx().request_repaint();
+        }
+    }
 }
 
 /// The tab that is really shown: the Source tab disappears with the source pane.

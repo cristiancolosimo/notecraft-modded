@@ -2529,14 +2529,7 @@ impl NoteCraftApp {
             .frame(egui::Frame::new().fill(tokens.panel).inner_margin(egui::Margin::symmetric(4, 0)))
             .show_separator_line(false)
             .show(ui, |ui| {
-                // A tablet's screen is narrower than the ribbon: the groups scroll sideways
-                // under a finger instead of running off the edge.
-                egui::ScrollArea::horizontal()
-                    .id_salt("ribbon-scroll")
-                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
-                    .show(ui, |ui| {
-                        acts = ribbon::show(ui, &tab, source, &view, format, &tokens);
-                    });
+                acts = ribbon::show(ui, &tab, source, &view, format, &tokens);
             });
         let picked = self.editor.as_ref().and_then(|e| crate::containers::selected(ui.ctx(), &e.dir));
         for a in acts {
