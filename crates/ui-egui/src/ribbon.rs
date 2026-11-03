@@ -378,7 +378,7 @@ pub const TAB_STRIP_H: f32 = 28.0;
 /// The ribbon's own height under the tabs: the buttons, then the group names along the
 /// bottom. Measured against OneNote at 100%, where a group is about 95 pixels tall with
 /// the name taking the last 16 of them.
-pub const GROUP_H: f32 = 88.0;
+pub const GROUP_H: f32 = 96.0;
 /// How far down a big button its icon, its first line of writing, and its second sit.
 const ICON_Y: f32 = 20.0;
 const LABEL_Y: f32 = 41.0;
@@ -386,8 +386,8 @@ const LINE_H: f32 = 12.0;
 /// The narrowest a big button may be, and the room its writing gets either side.
 const BIG: f32 = 50.0;
 const BIG_PAD: f32 = 12.0;
-const SMALL_W: f32 = 30.0;
-const SMALL_H: f32 = 18.0;
+const SMALL_W: f32 = 32.0;
+const SMALL_H: f32 = 23.0;
 /// Where the group's name sits above the ribbon's bottom edge.
 const GROUP_NAME_Y: f32 = 10.0;
 /// How far the tool in use sinks into the rack.
@@ -803,7 +803,7 @@ fn group(ui: &mut Ui, title: &str, t: &Tokens, add: impl FnOnce(&mut Ui)) {
         egui::pos2(inner.center().x, inner.min.y + GROUP_H - GROUP_NAME_Y),
         Align2::CENTER_CENTER,
         title,
-        egui::FontId::proportional(10.0),
+        egui::FontId::proportional(11.0),
         t.muted,
     );
     // The name is painted, so it is no widget by itself and a screen reader would skip
