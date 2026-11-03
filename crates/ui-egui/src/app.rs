@@ -48,6 +48,18 @@ const INDENT: f32 = 14.0;
 
 /// Shared title treatment for modal dialogs. Keeping this here makes dialogs use the
 /// same opaque, theme-owned title band instead of inheriting egui's platform-gray title bar.
+/// The saved form of the window's place: `x,y,width,height,maximised`.
+pub fn window_geometry(x: f32, y: f32, w: f32, h: f32, maximised: bool) -> String {
+    format!("{x:.0},{y:.0},{w:.0},{h:.0},{}", u8::from(maximised))
+}
+
+/// Reads [`window_geometry`] back; `None` for anything that is not a sensible window.
+pub fn parse_window_geometry(text: &str) -> Option<([f32; 2], [f32; 2], bool)> {
+    let n: Vec<f32> = text.split(',').map(|p| p.trim().parse().ok()).collect::<Option<_>>()?;
+    let [x, y, w, h, m] = n[..] else { return None };
+    (w >= 820.0 && h >= 520.0 && w < 10000.0 && h < 10000.0 && x.abs() < 20000.0 && y.abs() < 20000.0).then_some(([x, y], [w, h], m > 0.5))
+}
+
 pub(crate) fn modal_frame(tokens: &Tokens) -> egui::Frame {
     egui::Frame::NONE.fill(tokens.panel).stroke(egui::Stroke::new(1.5, tokens.accent)).inner_margin(egui::Margin::same(16))
 }
@@ -6023,6 +6035,17 @@ impl NoteCraftApp {
         // The ui is the room the system leaves (see the Android shell): dialogs are centred in it, not in
         // the whole window, where the keyboard would cover the very field being typed in.
         self.dialog_lift = ui.max_rect().center().y - ui.ctx().content_rect().center().y;
+        // The window is remembered when it is closed: where it was, how big, and whether maximised.
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        {
+            let (closing, geometry) = ui.ctx().input(|i| {
+                let v = i.viewport();
+                (v.close_requested(), (v.inner_rect, v.outer_rect, v.maximized.unwrap_or(false)))
+            });
+            if closing && let (Some(inner), Some(outer), maximised) = geometry {
+                let _ = self.session.settings.set("window_geometry", &window_geometry(outer.min.x, outer.min.y, inner.width(), inner.height(), maximised));
+            }
+        }
         // The frame cap: a frame is not started until enough time has gone since the last one.
         // Not on the web, which cannot sleep.
         #[cfg(not(target_arch = "wasm32"))]
@@ -6300,6 +6323,14 @@ fn theme_grid(ui: &mut Ui, current: Theme, pick: &mut Option<(Mode, Accent)>, fo
 #[cfg(test)]
 mod alert_tests {
     use super::*;
+
+    #[test]
+    fn a_window_place_is_saved_and_read_back_and_nonsense_is_refused() {
+        let text = window_geometry(10.4, 20.0, 1280.0, 800.0, true);
+        assert_eq!(parse_window_geometry(&text), Some(([10.0, 20.0], [1280.0, 800.0], true)));
+        assert_eq!(parse_window_geometry("1,2,100,100,0"), None, "smaller than the window may be");
+        assert_eq!(parse_window_geometry("not a window"), None);
+    }
 
     #[test]
     fn maximum_sensitivity_reaches_four_times_the_neutral_pen_width() {

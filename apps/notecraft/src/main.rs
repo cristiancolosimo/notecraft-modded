@@ -201,6 +201,9 @@ fn main() -> eframe::Result {
         .with_title("NoteCraft")
         .with_app_id("it.v01.notecraft")
         .with_decorations(!own_frame);
+    if let Some((pos, size, maximised)) = session.settings.get("window_geometry").as_deref().and_then(notecraft_ui_egui::app::parse_window_geometry) {
+        viewport = viewport.with_inner_size(size).with_position(pos).with_maximized(maximised);
+    }
     if let Some(icon) = icon() {
         applog::info(&format!("app icon installed on native viewport: size={}x{} rgba_bytes={}", icon.width, icon.height, icon.rgba.len()));
         viewport = viewport.with_icon(icon);
