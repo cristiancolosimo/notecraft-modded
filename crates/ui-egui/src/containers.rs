@@ -390,7 +390,9 @@ pub fn show(
         }
         let mut resize_drag_active = false;
         let bar = Rect::from_min_size(at, vec2(frame.width(), handle));
-        let drag = ui.interact(bar, ui.id().with(("container-move", i)), Sense::click_and_drag()).on_hover_cursor(egui::CursorIcon::Move);
+        // The cross at the bar's end is its own target, so the bar's drag stops short of it.
+        let grab = if image_object { bar } else { Rect::from_min_size(bar.min, vec2((bar.width() - handle).max(handle), handle)) };
+        let drag = ui.interact(grab, ui.id().with(("container-move", i)), Sense::click_and_drag()).on_hover_cursor(egui::CursorIcon::Move);
         let edge = Rect::from_min_size(pos2(frame.max.x - grip_width, frame.min.y), vec2(grip_width, frame.height().max(grip_width)));
         let grip = ui.interact(edge, ui.id().with(("container-size", i)), Sense::drag()).on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
 
@@ -577,7 +579,21 @@ pub fn show(
         // Drawn only when the pointer is in the container, the caret is in it, or it is
         // being dragged, the way a container shows its edges in OneNote.
         let busy = drag.dragged() || grip.dragged();
-        if hovered || editing || busy || is_sel || (touch && !image_object) {
+        // The cross at the end of the bar takes the box away, with the blocks in it: a way to delete
+        // that needs neither a keyboard nor a right click. It is there on every frame, drawn or not.
+        let gone = (!image_object).then(|| {
+            let cross = Rect::from_min_size(pos2(bar.max.x - handle, bar.min.y), vec2(handle, handle));
+            let response = ui.interact(cross, ui.id().with(("container-delete", i)), Sense::click()).on_hover_text("Delete this box");
+            let (enabled, name) = (ui.is_enabled(), "Delete box");
+            response.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+            (cross, response)
+        });
+        if let Some((_, response)) = &gone
+            && response.clicked()
+        {
+            delete_at = Some(i);
+        }
+        if hovered || ui.rect_contains_pointer(bar) || editing || busy || is_sel || (touch && !image_object) {
             log::debug!("render: i={} image_object={} hovered={} editing={} busy={} is_sel={}", i, image_object, hovered, editing, busy, is_sel);
             // Skip faint stroke for images; the selection affordance shows the picture boundary
             if !image_object {
@@ -590,6 +606,13 @@ pub fn show(
                 for n in 0..3 {
                     let c = pos2(bar.center().x + (n as f32 - 1.0) * 5.0 * zoom, bar.center().y);
                     ui.painter().circle_filled(c, 1.2 * zoom, t.muted);
+                }
+            }
+            if let Some((cross, response)) = &gone {
+                let (arm, d) = (cross.center(), handle * 0.22);
+                let colour = if response.hovered() { t.warn } else { t.muted };
+                for (a, b) in [((-d, -d), (d, d)), ((-d, d), (d, -d))] {
+                    ui.painter().line_segment([arm + vec2(a.0, a.1), arm + vec2(b.0, b.1)], egui::Stroke::new(1.6 * zoom, colour));
                 }
             }
             if grip.hovered() || grip.dragged() {

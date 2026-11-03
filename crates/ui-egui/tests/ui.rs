@@ -2652,6 +2652,31 @@ fn undo_and_redo_cover_a_moved_box_and_a_deleted_one() {
     assert_eq!(look(&mut h)["containers"].as_array().map_or(0, Vec::len), 2, "undo brought it back: {}", look(&mut h));
 }
 
+/// The cross on a box's bar deletes the box, with no keyboard and no right click.
+#[test]
+fn the_cross_on_a_boxs_bar_deletes_it() {
+    let (_t, app, s) = sample_app("ui-box-cross");
+    let mut h = harness(app, LIGHT);
+    settle(&mut h);
+    let look = |h: &mut Harness<'_, NoteCraftApp>| -> Value { ask(h, "ui.inspect", json!({})).expect("inspect")["page"].clone() };
+    let html = "<div class=\"nc-box\" data-x=\"0\" data-y=\"0\" data-width=\"260\"><p>left box</p></div>\n<div class=\"nc-box\" data-x=\"300\" data-y=\"0\" data-width=\"200\"><p>right box</p></div>\n";
+    let made = ask(&mut h, "engine.execute", json!({"command": "node.create", "params": {"parent": s.md_page.parent().expect("the section").to_string_lossy(), "kind": "page", "title": "Cross", "format": "html"}})).expect("a page");
+    let dir = made.as_str().expect("its path").to_string();
+    ask(&mut h, "engine.execute", json!({"command": "page.save", "params": {"path": dir, "body": html}})).expect("save it");
+    ask(&mut h, "ui.open", json!({"path": dir})).expect("open it");
+    settle(&mut h);
+    let origin = look(&mut h)["origin"].clone();
+    let (ox, oy) = (origin[0].as_f64().unwrap_or(0.0), origin[1].as_f64().unwrap_or(0.0));
+    // The box's frame is its width and a margin each side; the cross is at the end of the bar.
+    let (cx, cy) = (ox + 260.0 + 12.0 - 7.0, oy + 7.0);
+    ask(&mut h, "ui.move", json!({"x": cx, "y": cy})).expect("hover");
+    settle(&mut h);
+    ask(&mut h, "ui.click", json!({"x": cx, "y": cy})).expect("click the cross");
+    settle(&mut h);
+    let now = look(&mut h);
+    assert_eq!(now["containers"].as_array().map_or(0, Vec::len), 1, "the box went: {now}");
+}
+
 /// A box copied with Ctrl+C and pasted into another comes back as it was: its heading a heading, its link a
 /// link, its diagram a diagram. The clipboard holds only Markdown text, and pasting that text as one
 /// paragraph, as the ribbon's Paste once did, made a page of lines with their marks showing, blank lines
