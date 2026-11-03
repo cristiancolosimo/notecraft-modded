@@ -2568,6 +2568,90 @@ fn a_click_on_open_paper_starts_a_new_box_where_it_was_made() {
     assert_eq!(inside["containers"].as_array().map_or(0, Vec::len), boxes_now, "no new box for a click on a box: {inside}");
 }
 
+/// A box started on the open paper can be moved afterwards, as one that was always there.
+#[test]
+fn a_box_made_by_a_click_can_be_moved_by_its_bar() {
+    let (_t, app, s) = sample_app("ui-move-new-box");
+    let mut h = harness(app, LIGHT);
+    settle(&mut h);
+    let look = |h: &mut Harness<'_, NoteCraftApp>| -> Value { ask(h, "ui.inspect", json!({})).expect("inspect")["page"].clone() };
+    let html = "<div class=\"nc-box\" data-x=\"0\" data-y=\"0\" data-width=\"260\"><p>left box</p></div>\n";
+    let made = ask(&mut h, "engine.execute", json!({"command": "node.create", "params": {"parent": s.md_page.parent().expect("the section").to_string_lossy(), "kind": "page", "title": "Boxes", "format": "html"}})).expect("a page");
+    let dir = made.as_str().expect("its path").to_string();
+    ask(&mut h, "engine.execute", json!({"command": "page.save", "params": {"path": dir, "body": html}})).expect("save it");
+    ask(&mut h, "ui.open", json!({"path": dir})).expect("open it");
+    settle(&mut h);
+    let origin = look(&mut h)["origin"].clone();
+    let (ox, oy) = (origin[0].as_f64().unwrap_or(0.0), origin[1].as_f64().unwrap_or(0.0));
+    ask(&mut h, "ui.click", json!({"x": ox + 600.0, "y": oy + 40.0})).expect("click the open paper");
+    settle(&mut h);
+    ask(&mut h, "ui.text", json!({"text": "new words"})).expect("type");
+    settle(&mut h);
+    ask(&mut h, "ui.key", json!({"key": "Escape"})).expect("leave");
+    settle(&mut h);
+    let third = look(&mut h)["containers"][1].clone();
+    assert!(third["x"].as_f64().unwrap_or(0.0) > 500.0, "a second box: {third}");
+    let (hx, hy) = (ox + third["x"].as_f64().unwrap_or(0.0) + 60.0, oy + third["y"].as_f64().unwrap_or(0.0) + 6.0);
+    ask(&mut h, "ui.press", json!({"x": hx, "y": hy})).expect("press");
+    pump(&mut h);
+    ask(&mut h, "ui.move", json!({"x": hx - 80.0, "y": hy + 50.0})).expect("move");
+    pump(&mut h);
+    pump(&mut h);
+    ask(&mut h, "ui.release", json!({"x": hx - 80.0, "y": hy + 50.0})).expect("release");
+    settle(&mut h);
+    let now = look(&mut h)["containers"][1].clone();
+    assert!(now["x"].as_f64().unwrap_or(0.0) < third["x"].as_f64().unwrap_or(0.0) - 40.0, "the new box moved: {now} (was {third})");
+}
+
+/// Undo and redo take back a box that was moved, and a box that was deleted.
+#[test]
+fn undo_and_redo_cover_a_moved_box_and_a_deleted_one() {
+    let (_t, app, s) = sample_app("ui-undo-boxes");
+    let mut h = harness(app, LIGHT);
+    settle(&mut h);
+    let look = |h: &mut Harness<'_, NoteCraftApp>| -> Value { ask(h, "ui.inspect", json!({})).expect("inspect")["page"].clone() };
+    let html = "<div class=\"nc-box\" data-x=\"0\" data-y=\"0\" data-width=\"260\"><p>left box</p></div>\n<div class=\"nc-box\" data-x=\"300\" data-y=\"0\" data-width=\"200\"><p>right box</p></div>\n";
+    let made = ask(&mut h, "engine.execute", json!({"command": "node.create", "params": {"parent": s.md_page.parent().expect("the section").to_string_lossy(), "kind": "page", "title": "Undo", "format": "html"}})).expect("a page");
+    let dir = made.as_str().expect("its path").to_string();
+    ask(&mut h, "engine.execute", json!({"command": "page.save", "params": {"path": dir, "body": html}})).expect("save it");
+    ask(&mut h, "ui.open", json!({"path": dir})).expect("open it");
+    settle(&mut h);
+    let origin = look(&mut h)["origin"].clone();
+    let (ox, oy) = (origin[0].as_f64().unwrap_or(0.0), origin[1].as_f64().unwrap_or(0.0));
+    let x_of = |v: &Value, i: usize| v["containers"][i]["x"].as_f64().unwrap_or(-1.0);
+
+    // Drag the right box left, in several frames, as a hand does.
+    let (hx, hy) = (ox + 300.0 + 60.0, oy + 6.0);
+    ask(&mut h, "ui.press", json!({"x": hx, "y": hy})).expect("press");
+    pump(&mut h);
+    for step in 1..=5 {
+        ask(&mut h, "ui.move", json!({"x": hx - 20.0 * f64::from(step), "y": hy + 10.0 * f64::from(step)})).expect("move");
+        pump(&mut h);
+    }
+    ask(&mut h, "ui.release", json!({"x": hx - 100.0, "y": hy + 50.0})).expect("release");
+    settle(&mut h);
+    assert!(x_of(&look(&mut h), 1) < 250.0, "the box moved");
+    // One undo takes the whole drag back, not one frame of it.
+    ask(&mut h, "ui.undo", json!({})).expect("undo");
+    settle(&mut h);
+    assert!((x_of(&look(&mut h), 1) - 300.0).abs() < 1.5, "undo put the box back: {}", look(&mut h));
+    ask(&mut h, "ui.redo", json!({})).expect("redo");
+    settle(&mut h);
+    assert!(x_of(&look(&mut h), 1) < 250.0, "redo moved it again: {}", look(&mut h));
+    ask(&mut h, "ui.undo", json!({})).expect("undo");
+    settle(&mut h);
+
+    // Select the left box by its handle, delete it, take that back.
+    ask(&mut h, "ui.click", json!({"x": ox + 100.0, "y": oy + 6.0})).expect("select");
+    settle(&mut h);
+    ask(&mut h, "ui.key", json!({"key": "Delete"})).expect("delete");
+    settle(&mut h);
+    assert_eq!(look(&mut h)["containers"].as_array().map_or(0, Vec::len), 1, "the box went");
+    ask(&mut h, "ui.undo", json!({})).expect("undo");
+    settle(&mut h);
+    assert_eq!(look(&mut h)["containers"].as_array().map_or(0, Vec::len), 2, "undo brought it back: {}", look(&mut h));
+}
+
 /// A box copied with Ctrl+C and pasted into another comes back as it was: its heading a heading, its link a
 /// link, its diagram a diagram. The clipboard holds only Markdown text, and pasting that text as one
 /// paragraph, as the ribbon's Paste once did, made a page of lines with their marks showing, blank lines

@@ -556,6 +556,8 @@ pub struct NoteCraftApp {
     qat: quickaccess::Config,
     /// When the pen last changed the page, to tell which Undo should take back.
     last_ink_change: Option<Instant>,
+    /// The last Undo took back a change to the drawing, so Redo puts that back first.
+    undid_ink: bool,
     /// Two columns in the side panel (organisers, then pages) instead of one tree.
     split_panes: bool,
     /// Whether the organisers column is showing, which the three-bar button toggles.
@@ -643,6 +645,8 @@ pub struct NoteCraftApp {
     hide_title: bool,
     /// The page's zoom. The ribbon and the rest of the window keep their own size.
     zoom_percent: u32,
+    /// The zoom the page was last drawn at, to notice a change and keep the point under the pointer still.
+    zoom_seen: u32,
     /// Recalculate the page zoom from the reading area's width on the next frame.
     fit_page_width: bool,
     /// The theme chooser is open as a window (the ribbon's Theme button).
@@ -709,6 +713,7 @@ impl NoteCraftApp {
             nav: NavHistory::default(),
             qat,
             last_ink_change: None,
+            undid_ink: false,
             open: HashSet::new(),
             selected: None,
             split_panes: session_split,
@@ -764,6 +769,7 @@ impl NoteCraftApp {
             gridcraft: crate::gridcraft::installed(),
             hide_title: session_hide_title,
             zoom_percent: 100,
+            zoom_seen: 100,
             fit_page_width: false,
             theme_window: false,
             pending_copy: None,
@@ -985,11 +991,11 @@ impl NoteCraftApp {
     }
 
     fn can_undo(&self) -> bool {
-        self.editor.as_ref().is_some_and(|e| e.writable && e.history.can_undo()) || self.pad.as_ref().is_some_and(|p| p.strokes() > 0)
+        self.editor.as_ref().is_some_and(|e| e.writable && e.history.can_undo()) || self.pad.as_ref().is_some_and(crate::inkpad::Pad::can_undo)
     }
 
     fn can_redo(&self) -> bool {
-        self.editor.as_ref().is_some_and(|e| e.writable && e.history.can_redo())
+        self.editor.as_ref().is_some_and(|e| e.writable && e.history.can_redo()) || self.pad.as_ref().is_some_and(crate::inkpad::Pad::can_redo)
     }
 
     /// Undo for the Quick Access Toolbar: the page's words and boxes (the page history in
@@ -1002,17 +1008,25 @@ impl NoteCraftApp {
             (Some(_), None) => true,
             _ => false,
         };
-        let has_strokes = self.pad.as_ref().is_some_and(|p| p.strokes() > 0);
+        let ink_can = self.pad.as_ref().is_some_and(crate::inkpad::Pad::can_undo);
         let page_can = self.editor.as_ref().is_some_and(|e| e.writable && e.history.can_undo());
-        if has_strokes && (ink_newer || !page_can) {
+        self.undid_ink = ink_can && (ink_newer || !page_can);
+        if self.undid_ink {
             self.ink_undo();
         } else {
             self.step_back(true);
         }
     }
 
+    /// Redo for the same toolbar: it puts back what Undo took off last, the drawing's change or the page's.
     fn redo(&mut self) {
-        self.step_back(false);
+        let ink_can = self.pad.as_ref().is_some_and(crate::inkpad::Pad::can_redo);
+        let page_can = self.editor.as_ref().is_some_and(|e| e.writable && e.history.can_redo());
+        if ink_can && (self.undid_ink || !page_can) {
+            self.ink_redo();
+        } else {
+            self.step_back(false);
+        }
     }
 
     /// The keys and buttons that move through the pages that were opened. Undo and Redo keys
@@ -2998,8 +3012,8 @@ impl NoteCraftApp {
                     None => "The page is the theme's own colour".to_string(),
                 });
             }
-            ribbon::Act::Undo => self.step_back(true),
-            ribbon::Act::Redo => self.step_back(false),
+            ribbon::Act::Undo => self.undo(),
+            ribbon::Act::Redo => self.redo(),
             ribbon::Act::ToGridCraft => self.hand_table_to_gridcraft(),
             ribbon::Act::FromGridCraft => self.read_table_from_gridcraft(),
             ribbon::Act::NewGridCraft => self.new_gridcraft(),
@@ -3395,6 +3409,12 @@ impl NoteCraftApp {
     /// them, so Ctrl+Z takes back a run of writing rather than one character.
     fn remember_step(ed: &mut Editor) {
         let same = ed.history.here().is_some_and(|s| s.body == ed.body && s.blocks == ed.blocks && s.boxes == ed.boxes);
+        // The body alone changed: the page was written out and its text now says where the boxes are.
+        // That is the same step, with its text brought up to date, not another one to undo.
+        if !same && ed.history.here().is_some_and(|s| s.blocks == ed.blocks && s.boxes == ed.boxes) {
+            ed.history.refresh_body(ed.body.clone());
+            return;
+        }
         if same {
             // Nothing really changed, or the page was just put back by undo itself.
             return;
@@ -3402,7 +3422,9 @@ impl NoteCraftApp {
         let here = ed.caret.as_ref().map(|c| c.block);
         let was = ed.history.here().and_then(|s| s.caret.as_ref().map(|c| c.block));
         let shape = ed.history.here().is_some_and(|s| s.blocks.len() == ed.blocks.len());
+        let moved = ed.history.here().is_some_and(|s| s.blocks == ed.blocks && s.boxes != ed.boxes);
         let kind = match (shape, here, was) {
+            _ if moved => crate::history::Kind::Move,
             (true, Some(a), Some(b)) if a == b => crate::history::Kind::Typing(a),
             _ => crate::history::Kind::Edit,
         };
@@ -4419,6 +4441,25 @@ impl NoteCraftApp {
         }
         #[allow(clippy::cast_precision_loss)]
         let zoom_scale = self.zoom_percent as f32 / 100.0;
+        if self.zoom_percent != self.zoom_seen {
+            // Zoom around the point that was pinched, or pointed at, or the middle of the page:
+            // what is under it stays under it, instead of the page growing from its top left corner.
+            #[allow(clippy::cast_precision_loss)]
+            let old = (self.zoom_seen as f32 / 100.0).max(0.01);
+            self.zoom_seen = self.zoom_percent;
+            let focus = ui
+                .input(|i| i.multi_touch().map(|m| m.center_pos).or(i.pointer.hover_pos()))
+                .filter(|p| editor_rect.contains(*p))
+                .unwrap_or(editor_rect.center());
+            if let Some(offset) = ui.ctx().data(|d| d.get_temp::<egui::Vec2>(Id::new("preview-offset"))) {
+                let (f, width) = (focus - editor_rect.min, ui.available_width());
+                let margin = |z: f32| ((width - 780.0 * z) / 2.0).max(8.0);
+                let across = (offset.x + f.x - margin(old)) / old;
+                let x = (margin(zoom_scale) + zoom_scale * across - f.x).max(0.0);
+                let y = ((offset.y + f.y) * (zoom_scale / old) - f.y).max(0.0);
+                ui.ctx().data_mut(|d| d.insert_temp(Id::new("preview-set-offset"), egui::vec2(x, y)));
+            }
+        }
         let root = self.session.root().to_path_buf();
         let tokens = self.tokens;
         let mut rename: Option<String> = None;
@@ -4535,7 +4576,12 @@ impl NoteCraftApp {
                 // The visible area: the scroll area below gives its content no limit in either
                 // direction, so the column is centred and sized by this instead.
                 let view = vec2(ui.available_width(), height);
-                egui::ScrollArea::both().id_salt("preview").scroll_source(scroll).max_height(height).show(ui, |ui| {
+                let mut scroller = egui::ScrollArea::both().id_salt("preview").scroll_source(scroll).max_height(height);
+                // A zoom this frame asked for the page to stay where it was under the pointer.
+                if let Some(offset) = ui.ctx().data_mut(|d| d.remove_temp::<egui::Vec2>(Id::new("preview-set-offset"))) {
+                    scroller = scroller.scroll_offset(offset);
+                }
+                let shown = scroller.show(ui, |ui| {
                     // Lines or squares behind the page, the way OneNote rules one. The
                     // spacing comes from the paper chosen; NoteCraft's own two papers draw
                     // every fifth line stronger, which the others do not.
@@ -4627,16 +4673,21 @@ impl NoteCraftApp {
                                 let body = egui::Rect::from_min_size(egui::pos2(ui.max_rect().min.x, top.y), size);
                                 page_rect = Some(body);
                                 if ed.sheet_a4 {
-                                    // The gap between two sheets: a tinted band with an edge on each side,
-                                    // light enough that words running across it stay readable.
+                                    // Each sheet is outlined, so its sides show as well as the gap between it and the
+                                    // next; the gap is a tinted band, light enough that words running across it stay
+                                    // readable.
                                     let (sheet, pitch) = crate::inkpad::a4_sheet(body.width());
-                                    let painter = ui.painter_at(body);
-                                    let mut y = body.min.y + sheet;
+                                    let painter = ui.painter_at(body.expand(2.0));
+                                    let edge = egui::Stroke::new(2.0, tokens.muted);
+                                    let mut y = body.min.y;
                                     while y < body.max.y - 1.0 {
-                                        let gap = egui::Rect::from_min_size(egui::pos2(body.min.x, y), vec2(body.width(), pitch - sheet));
+                                        let sheet_rect = egui::Rect::from_min_size(egui::pos2(body.min.x, y), vec2(body.width(), sheet));
+                                        painter.rect_stroke(sheet_rect.shrink(1.0), 0.0, edge, egui::StrokeKind::Inside);
+                                        let gap = egui::Rect::from_min_max(
+                                            egui::pos2(body.min.x, sheet_rect.max.y),
+                                            egui::pos2(body.max.x, (y + pitch).min(body.max.y)),
+                                        );
                                         painter.rect_filled(gap, 0.0, tokens.text.gamma_multiply(0.12));
-                                        painter.hline(gap.x_range(), gap.min.y, egui::Stroke::new(1.0, tokens.muted));
-                                        painter.hline(gap.x_range(), gap.max.y, egui::Stroke::new(1.0, tokens.muted));
                                         y += pitch;
                                     }
                                 }
@@ -4687,6 +4738,7 @@ impl NoteCraftApp {
                         }
                     });
                 });
+                ui.ctx().data_mut(|d| d.insert_temp(Id::new("preview-offset"), shown.state.offset));
             };
             if show_source {
                 // The code view: the page's files on the left, the one picked on the
@@ -6231,9 +6283,9 @@ impl NoteCraftApp {
         // one that answers, or Ctrl+Z would mean two different things on one page.
         let ctrl_shift = Modifiers { ctrl: true, shift: true, command: true, ..Modifiers::NONE };
         if ctx.input_mut(|i| i.consume_key(ctrl_shift, Key::Z) || i.consume_key(Modifiers::COMMAND, Key::Y)) {
-            self.step_back(false);
+            self.redo();
         } else if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Z)) {
-            self.step_back(true);
+            self.undo();
         }
         self.nav_keys(ctx);
         self.direction_keys(ctx);

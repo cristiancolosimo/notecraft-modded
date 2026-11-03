@@ -27,6 +27,8 @@ use notecraft_model::{Container, container};
 /// The height of the bar at the top of a container, which is what it is dragged by. Wide
 /// enough to hit without aiming: a thin strip is what makes dragging feel unreliable.
 const HANDLE: f32 = 14.0;
+/// The same bar on a touch screen, where there is no pointer to find it by: taller, and always drawn.
+const HANDLE_TOUCH: f32 = 28.0;
 /// How wide the strip on the right edge is, for resizing. Same reason.
 const GRIP: f32 = 10.0;
 /// The gap between a container's edge and the words inside it.
@@ -251,7 +253,8 @@ pub fn show(
         // together so the outline remains attached to its text as the page zooms.
         let at = pos2(area.min.x + b.x * zoom, area.min.y + b.y * zoom);
         let pad = PAD * zoom;
-        let handle = HANDLE * zoom;
+        let touch = ui.ctx().input(|i| i.has_touch_screen());
+        let handle = if touch { HANDLE_TOUCH } else { HANDLE } * zoom;
         let grip_width = GRIP * zoom;
         let editing = caret.as_ref().is_some_and(|c| range.contains(&c.block));
 
@@ -574,7 +577,7 @@ pub fn show(
         // Drawn only when the pointer is in the container, the caret is in it, or it is
         // being dragged, the way a container shows its edges in OneNote.
         let busy = drag.dragged() || grip.dragged();
-        if hovered || editing || busy || is_sel {
+        if hovered || editing || busy || is_sel || (touch && !image_object) {
             log::debug!("render: i={} image_object={} hovered={} editing={} busy={} is_sel={}", i, image_object, hovered, editing, busy, is_sel);
             // Skip faint stroke for images; the selection affordance shows the picture boundary
             if !image_object {

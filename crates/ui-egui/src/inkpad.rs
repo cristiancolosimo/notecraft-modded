@@ -212,10 +212,16 @@ pub struct Pad {
     loop_now: Vec<(f32, f32)>,
     /// Where a shape's drag began, which is one of the two corners it is drawn between.
     shape_from: Option<(f32, f32)>,
-    /// Strokes taken back, newest last, which Redo can put back; valid only while the drawing still
-    /// has `redo_len` strokes, that is, while nothing has been drawn or rubbed out since.
-    redone: Vec<Stroke>,
-    redo_len: usize,
+    /// The drawing as it stood before each change, newest last: a stroke, a rubbing out, a move, a
+    /// stretch, a delete, a paste. Undo puts the last one back; what it replaced goes to `later`, which
+    /// Redo uses, until something new is done.
+    before: Vec<Vec<Stroke>>,
+    later: Vec<Vec<Stroke>>,
+    /// The drawing as it stood when the ink was taken hold of (or the rubber went down), kept until the
+    /// gesture is over and it is known whether anything changed.
+    gesture: Option<Vec<Stroke>>,
+    /// The rubber has already taken something away in this gesture.
+    rubbed: bool,
     /// How the ink is kept on disk (see [`Pad::save`]): `ink.svg` plus a journal of strokes finished since
     /// it was last written out. Entries are numbered for as long as the page lives; the ones below
     /// `folded` are already in the file. `persisted` strokes of the drawing, whose fingerprint is `fp`,
@@ -297,8 +303,10 @@ impl Pad {
             held: Vec::new(),
             loop_now: Vec::new(),
             shape_from: None,
-            redone: Vec::new(),
-            redo_len: 0,
+            before: Vec::new(),
+            later: Vec::new(),
+            gesture: None,
+            rubbed: false,
             next_entry,
             folded,
             persisted,
@@ -518,6 +526,7 @@ impl Pad {
         let Ok(text) = std::fs::read_to_string(&file) else { return 0 };
         let Ok((old, _)) = svg::read(&text) else { return 0 };
         let before = self.drawing.strokes.len();
+        self.checkpoint();
         for stroke in old.strokes {
             self.drawing.add(stroke);
         }
@@ -526,38 +535,62 @@ impl Pad {
         came
     }
 
-    /// Takes the last stroke back.
+    /// How many changes are remembered, at most.
+    const REMEMBERED: usize = 40;
+
+    /// Remembers the drawing as it is now, before a change is made to it.
+    fn checkpoint(&mut self) {
+        let now = self.drawing.strokes.clone();
+        self.remember(now);
+    }
+
+    fn remember(&mut self, strokes: Vec<Stroke>) {
+        self.later.clear();
+        self.before.push(strokes);
+        if self.before.len() > Self::REMEMBERED {
+            self.before.remove(0);
+        }
+    }
+
+    /// Puts a stroke on the drawing as a change that can be taken back.
+    fn add_stroke(&mut self, stroke: Stroke) -> bool {
+        self.checkpoint();
+        let kept = self.drawing.add(stroke);
+        if !kept {
+            self.before.pop();
+        }
+        self.dirty |= kept;
+        kept
+    }
+
+    /// Takes the last change back: a stroke, a rubbing out, a move or a stretch, a delete or a paste.
     pub fn undo(&mut self) -> bool {
-        // Anything drawn since the last undo replaces what could have been put back.
-        if self.drawing.strokes.len() != self.redo_len {
-            self.redone.clear();
-        }
-        let last = self.drawing.strokes.last().cloned();
-        let went = self.drawing.undo();
-        if went && let Some(stroke) = last {
-            self.redone.push(stroke);
-        }
-        self.redo_len = self.drawing.strokes.len();
-        self.dirty |= went;
-        went
+        let Some(was) = self.before.pop() else { return false };
+        let now = std::mem::replace(&mut self.drawing.strokes, was);
+        self.later.push(now);
+        self.let_go();
+        self.dirty = true;
+        true
     }
 
-    /// Whether Redo has a stroke to put back.
+    /// Whether there is a change to take back.
+    pub fn can_undo(&self) -> bool {
+        !self.before.is_empty()
+    }
+
+    /// Whether Redo has a change to put back.
     pub fn can_redo(&self) -> bool {
-        !self.redone.is_empty() && self.drawing.strokes.len() == self.redo_len
+        !self.later.is_empty()
     }
 
-    /// Puts back the stroke Undo took off last.
+    /// Puts back the change Undo took off last.
     pub fn redo(&mut self) -> bool {
-        if !self.can_redo() {
-            self.redone.clear();
-            return false;
-        }
-        let Some(stroke) = self.redone.pop() else { return false };
-        let put = self.drawing.add(stroke);
-        self.redo_len = self.drawing.strokes.len();
-        self.dirty |= put;
-        put
+        let Some(again) = self.later.pop() else { return false };
+        let now = std::mem::replace(&mut self.drawing.strokes, again);
+        self.before.push(now);
+        self.let_go();
+        self.dirty = true;
+        true
     }
 
     pub fn strokes(&self) -> usize {
@@ -583,7 +616,14 @@ impl Pad {
 
     /// Throws away the held ink and says whether any went.
     pub fn delete_held(&mut self) -> bool {
+        if self.held.is_empty() {
+            return false;
+        }
+        self.checkpoint();
         let went = pick::remove(&mut self.drawing, &self.held) > 0;
+        if !went {
+            self.before.pop();
+        }
         self.let_go();
         self.dirty |= went;
         went
@@ -604,6 +644,7 @@ impl Pad {
     /// Lays `strokes` down with their box's top left corner at (`x`, `y`), and holds them, so they can
     /// be moved at once. Says whether anything went down.
     pub fn put(&mut self, strokes: &[Stroke], x: f32, y: f32) -> bool {
+        self.checkpoint();
         let at = pick::paste(&mut self.drawing, strokes, x, y);
         self.grabbed = None;
         self.dirty |= !at.is_empty();
@@ -730,9 +771,7 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
         pad.let_go();
         // The tool was put down mid-stroke; keep what was drawn rather than losing it.
         if let Some(stroke) = pad.drawing_now.take() {
-            let kept = pad.drawing.add(stroke);
-            pad.dirty |= kept;
-            return kept;
+            return pad.add_stroke(stroke);
         }
         return false;
     }
@@ -782,7 +821,22 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
     match pen.pointer {
         Pointer::Erase => {
             if let Some((x, y)) = at.filter(|_| down) {
+                // The drawing as it was when the rubber went down; kept as one change once it has taken
+                // something away, however many frames the rubbing lasts.
+                if pad.gesture.is_none() {
+                    pad.gesture = Some(pad.drawing.strokes.clone());
+                }
                 changed = pad.drawing.erase_at(x, y, pen.width.max(6.0) / 2.0) > 0;
+                if changed
+                    && !pad.rubbed
+                    && let Some(was) = pad.gesture.clone()
+                {
+                    pad.remember(was);
+                    pad.rubbed = true;
+                }
+            } else {
+                pad.gesture = None;
+                pad.rubbed = false;
             }
         }
         Pointer::Draw => {
@@ -808,7 +862,7 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
                     ui.ctx().request_repaint();
                 }
             } else if let Some(stroke) = pad.drawing_now.take() {
-                changed = pad.drawing.add(stroke);
+                changed = pad.add_stroke(stroke);
             }
         }
         Pointer::Shape(shape) => {
@@ -828,7 +882,7 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
             } else {
                 pad.shape_from = None;
                 if let Some(stroke) = pad.drawing_now.take() {
-                    changed = pad.drawing.add(stroke);
+                    changed = pad.add_stroke(stroke);
                 }
             }
         }
@@ -856,6 +910,7 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
                 // A press on a corner stretches, inside the box moves, on a stroke picks
                 // that stroke up, and anywhere else lets go.
                 let corner = held_box.and_then(|b| grab_corner(b, here));
+                pad.gesture = Some(pad.drawing.strokes.clone());
                 match (corner, held_box, at) {
                     (Some(c), Some(b), _) => pad.grabbed = Some((here, as_tuple(b, body, zoom), c)),
                     (None, Some(b), _) if b.contains(here) => pad.grabbed = Some((here, as_tuple(b, body, zoom), Grab::Move)),
@@ -896,6 +951,12 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
                     ui.ctx().request_repaint();
                 } else {
                     pad.grabbed = None;
+                    // One change, if the ink really moved or was stretched.
+                    if let Some(was) = pad.gesture.take()
+                        && fingerprint(&was) != fingerprint(&pad.drawing.strokes)
+                    {
+                        pad.remember(was);
+                    }
                     changed = true;
                 }
             }
@@ -1090,8 +1151,8 @@ mod tests {
     #[test]
     fn held_ink_can_be_duplicated_cut_and_put_back_on_another_page() {
         let mut pad = Pad::of_page(TempDir::new("ink-held-a").path());
-        pad.drawing.add(stroke(10.0));
-        pad.drawing.add(stroke(100.0));
+        pad.add_stroke(stroke(10.0));
+        pad.add_stroke(stroke(100.0));
         pad.select_all();
         assert_eq!(pad.holding(), 2);
         assert!(pad.duplicate_held());
@@ -1110,6 +1171,36 @@ mod tests {
     }
 
     #[test]
+    fn undo_and_redo_cover_a_delete_a_paste_and_a_move_as_well_as_strokes() {
+        let mut pad = Pad::of_page(TempDir::new("ink-undo-all").path());
+        assert!(pad.add_stroke(stroke(10.0)));
+        assert!(pad.add_stroke(stroke(100.0)));
+        // A delete.
+        pad.select_all();
+        assert!(pad.delete_held());
+        assert_eq!(pad.strokes(), 0);
+        assert!(pad.undo(), "the delete is taken back");
+        assert_eq!(pad.strokes(), 2);
+        assert!(pad.can_redo());
+        assert!(pad.redo(), "and put back");
+        assert_eq!(pad.strokes(), 0);
+        assert!(pad.undo());
+        // A paste (a duplicate).
+        pad.select_all();
+        assert!(pad.duplicate_held());
+        assert_eq!(pad.strokes(), 4);
+        assert!(pad.undo());
+        assert_eq!(pad.strokes(), 2, "the paste is taken back");
+        // A new stroke after an undo: nothing is left to redo, and undo still goes one change at a time.
+        assert!(pad.add_stroke(stroke(200.0)));
+        assert!(!pad.can_redo());
+        assert!(pad.undo());
+        assert_eq!(pad.strokes(), 2);
+        assert!(pad.undo() && pad.undo(), "the first two strokes go, one change each");
+        assert!(!pad.undo(), "and then there is nothing to take back");
+    }
+
+    #[test]
     fn a_page_with_no_ink_has_no_ink_file() {
         let t = TempDir::new("ink-layer");
         let page = t.path().to_path_buf();
@@ -1124,7 +1215,7 @@ mod tests {
         let t = TempDir::new("ink-layer-save");
         let page = t.path().to_path_buf();
         let mut pad = Pad::of_page(&page);
-        assert!(pad.drawing.add(stroke(10.0)));
+        assert!(pad.add_stroke(stroke(10.0)));
         pad.dirty = true;
         pad.save().expect("saved");
         assert!(page.join(FILE).exists(), "the file appeared the moment it was drawn on");
@@ -1150,7 +1241,7 @@ mod tests {
         let t = TempDir::new("ink-layer-clean");
         let page = t.path().to_path_buf();
         let mut pad = Pad::of_page(&page);
-        pad.drawing.add(stroke(10.0));
+        pad.add_stroke(stroke(10.0));
         pad.save().expect("saved");
         assert!(page.join(FILE).exists());
 
@@ -1206,7 +1297,7 @@ mod tests {
         assert_eq!(pad.far(), (0.0, 0.0));
         let mut s = Stroke::new(notecraft_ink::Tool::Pen, notecraft_ink::Rgb::BLACK, 2.0);
         s.add(Dab::new(3000.0, 2500.0, 1.0));
-        pad.drawing.add(s);
+        pad.add_stroke(s);
         let (x, y) = pad.far();
         assert!(x >= 3000.0 && y >= 2500.0, "{x},{y}");
         pad.save().expect("saved");
@@ -1251,8 +1342,8 @@ mod tests {
     fn a_stroke_taken_back_can_be_put_back_until_something_new_is_drawn() {
         let t = TempDir::new("ink-redo");
         let mut pad = Pad::of_page(t.path());
-        pad.drawing.add(stroke(10.0));
-        pad.drawing.add(stroke(50.0));
+        pad.add_stroke(stroke(10.0));
+        pad.add_stroke(stroke(50.0));
         assert!(!pad.can_redo(), "nothing was taken back yet");
         assert!(pad.undo() && pad.undo());
         assert_eq!(pad.strokes(), 0);
@@ -1265,7 +1356,7 @@ mod tests {
 
         // Drawing something new ends the chance to put the old strokes back.
         assert!(pad.undo());
-        pad.drawing.add(stroke(90.0));
+        pad.add_stroke(stroke(90.0));
         assert!(!pad.can_redo(), "a new stroke replaced what could have come back");
         assert!(!pad.redo());
     }
@@ -1311,13 +1402,13 @@ mod tests {
         let t = TempDir::new("ink-journal");
         let page = t.path().to_path_buf();
         let mut pad = Pad::of_page(&page);
-        pad.drawing.add(stroke(10.0));
+        pad.add_stroke(stroke(10.0));
         pad.save().expect("first save writes the file");
         let file = std::fs::read(page.join(FILE)).expect("the file");
         assert_eq!(paths(&page.join(FILE)), 1);
-        pad.drawing.add(stroke(50.0));
+        pad.add_stroke(stroke(50.0));
         pad.save().expect("second");
-        pad.drawing.add(stroke(90.0));
+        pad.add_stroke(stroke(90.0));
         pad.save().expect("third");
 
         assert_eq!(std::fs::read(page.join(FILE)).expect("the file"), file, "ink.svg was not touched");
@@ -1332,7 +1423,7 @@ mod tests {
         let page = t.path().to_path_buf();
         let mut pad = Pad::of_page(&page);
         for x in [10.0, 50.0, 90.0] {
-            pad.drawing.add(stroke(x));
+            pad.add_stroke(stroke(x));
             pad.save().expect("save");
         }
         pad.flush();
@@ -1342,7 +1433,7 @@ mod tests {
         assert_eq!(Pad::of_page(&page).strokes(), 3);
 
         // Later strokes start a new journal that carries on the numbering, and are not lost or doubled.
-        pad.drawing.add(stroke(130.0));
+        pad.add_stroke(stroke(130.0));
         pad.save().expect("save");
         let again = Pad::of_page(&page);
         assert_eq!(again.strokes(), 4);
@@ -1355,7 +1446,7 @@ mod tests {
         let page = t.path().to_path_buf();
         let mut pad = Pad::of_page(&page);
         for i in 0..42 {
-            pad.drawing.add(stroke(i as f32 * 5.0));
+            pad.add_stroke(stroke(i as f32 * 5.0));
             pad.save().expect("save");
             pad.maintain();
         }
@@ -1370,7 +1461,7 @@ mod tests {
         let page = t.path().to_path_buf();
         let mut pad = Pad::of_page(&page);
         for x in [10.0, 50.0, 90.0] {
-            pad.drawing.add(stroke(x));
+            pad.add_stroke(stroke(x));
             pad.save().expect("save");
         }
         assert!(pad.undo());
@@ -1406,7 +1497,7 @@ mod tests {
         assert_eq!(pad.strokes(), 3, "the two in the file, the one new, and not the torn record");
         // The torn end was cut off, so the next stroke is not appended after garbage.
         let mut pad = pad;
-        pad.drawing.add(stroke(170.0));
+        pad.add_stroke(stroke(170.0));
         pad.save().expect("save");
         assert_eq!(Pad::of_page(&page).strokes(), 4);
     }
@@ -1419,7 +1510,7 @@ mod tests {
         let mut pad = Pad::of_page(&page);
         assert!(pad.is_empty());
         assert_eq!(std::fs::read_to_string(page.join(UNREADABLE)).expect("kept"), "this is not a drawing");
-        pad.drawing.add(stroke(10.0));
+        pad.add_stroke(stroke(10.0));
         pad.save().expect("save");
         assert!(page.join(UNREADABLE).exists(), "still there after the next stroke");
     }

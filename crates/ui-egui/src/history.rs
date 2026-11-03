@@ -25,6 +25,9 @@ use web_time::Instant;
 /// A run of typing into one block folds into one step until the writer pauses this long.
 pub const PAUSE: Duration = Duration::from_millis(700);
 
+/// Frames of a drag follow each other closer than this; a longer pause starts another step.
+pub const DRAG_GAP: Duration = Duration::from_millis(300);
+
 /// How many steps are kept, and how much they may weigh in all.
 pub const MAX_STEPS: usize = 200;
 pub const MAX_BYTES: usize = 16 * 1024 * 1024;
@@ -36,6 +39,8 @@ pub enum Kind {
     Edit,
     /// Letters going into this block.
     Typing(usize),
+    /// A box dragged or stretched: the frames of one drag are one step, not one each.
+    Move,
 }
 
 /// The page as it stood at one moment.
@@ -95,6 +100,7 @@ impl History {
         let last = &self.steps[self.at];
         match (last.kind, step.kind) {
             (Kind::Typing(a), Kind::Typing(b)) => a == b && step.when.duration_since(last.when) < PAUSE,
+            (Kind::Move, Kind::Move) => step.when.duration_since(last.when) < DRAG_GAP,
             _ => false,
         }
     }
@@ -107,6 +113,14 @@ impl History {
             weight -= self.steps[0].weight();
             self.steps.remove(0);
             self.at -= 1;
+        }
+    }
+
+    /// Brings the text of the step the page is showing up to date, when the blocks and boxes in it
+    /// are the same as before and only the way they were written out changed.
+    pub fn refresh_body(&mut self, body: String) {
+        if let Some(step) = self.steps.get_mut(self.at) {
+            step.body = body;
         }
     }
 
