@@ -5161,5 +5161,5 @@ fn the_compact_toolbar_formats_the_page_and_reaches_the_other_tabs() {
     assert_eq!(h.query_all_by_label("Drawing").count(), 0, "no Text/Drawing switch");
     h.get_by_label("+ Insert").click();
     h.run_steps(2);
-    assert!(h.query_all_by_label("Diagram").count() > 0, "the Insert menu opened with its rows");
+    assert!(h.query_all_by_label("Insert").count() > 0, "the Insert tab opened");
 }
