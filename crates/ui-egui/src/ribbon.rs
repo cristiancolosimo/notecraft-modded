@@ -524,6 +524,7 @@ pub fn quick_draw_bar(ui: &mut Ui, view: &View<'_>, t: &Tokens) -> Vec<Act> {
                     ui.spacing_mut().item_spacing.x = 4.0;
                     ui.add_space(6.0);
                     quick_tools(ui, view, t, &mut acts);
+                    paper_chip(ui, view, t, &mut acts);
                 });
             });
         });
@@ -637,6 +638,10 @@ fn quick_tools(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
         done
     });
     divider(ui, t);
+}
+
+/// The paper chip of the quick bar.
+fn paper_chip(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
     // The paper under the page: none, lines or squares, and a page colour. A grid is
     // what makes handwriting and diagrams come out straight, so it is one press away.
     let on = view.rules != RuleLines::None;
@@ -1248,11 +1253,137 @@ pub fn compact_toolbar(ui: &mut Ui, view: &View<'_>, t: &Tokens) -> Vec<Act> {
                 }
             }
         });
-        if dropdown(ui, "+ Insert", 96.0, t).clicked() {
-            acts.push(Act::Tab("Insert".to_string()));
-        }
+        insert_menu(ui, view, t, &mut acts);
     });
     acts
+}
+
+/// The Insert menu of the compact toolbar: a search field, then what can go in the page in three
+/// groups. Typing narrows the rows; a group with no row left goes.
+fn insert_menu(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
+    let button = dropdown(ui, "+ Insert", 96.0, t);
+    let query_id = egui::Id::new("compact-insert-query");
+    egui::Popup::menu(&button).show(|ui| {
+        ui.set_min_width(280.0);
+        let mut query = ui.data(|d| d.get_temp::<String>(query_id).unwrap_or_default());
+        ui.add(egui::TextEdit::singleline(&mut query).hint_text("Search what to insert").desired_width(f32::INFINITY));
+        ui.data_mut(|d| d.insert_temp(query_id, query.clone()));
+        let q = query.trim().to_lowercase();
+        let shown = |label: &str| q.is_empty() || label.to_lowercase().contains(&q);
+        let mut chosen: Option<Act> = None;
+        let heading = |ui: &mut Ui, name: &str| {
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(name).size(11.0).color(t.muted));
+        };
+        let mut row = |ui: &mut Ui, icon: Icon, label: &str, act: Act| {
+            if shown(label) && floating::menu_row(ui, Some(Glyph::Icon(icon)), label, t).clicked() {
+                chosen = Some(act);
+            }
+        };
+        let any = |labels: &[&str]| labels.iter().any(|l| shown(l));
+        if any(&["Table", "Picture", "Attachment", "File printout", "Spreadsheet", "Diagram", "Space"]) {
+            heading(ui, "ELEMENTS");
+            if shown("Table") {
+                ui.menu_button("Table", |ui| {
+                    if let Some((r, c)) = table_grid(ui, egui::Id::new("compact-insert-table"), t) {
+                        acts.push(Act::InsertTable(r + 1, c + 1));
+                        ui.close();
+                    }
+                });
+            }
+            row(ui, Icon::Picture, "Picture", Act::AddPicture);
+            row(ui, Icon::Attach, "Attachment", Act::AddFile);
+            row(ui, Icon::Page, "File printout", Act::AddPrintout);
+            if view.gridcraft {
+                row(ui, Icon::Spreadsheet, "Spreadsheet", Act::NewGridCraft);
+            }
+            row(ui, Icon::Diagram, "Diagram", Act::Insert("diagram"));
+            row(ui, Icon::InsertSpace, "Space", Act::Insert("space"));
+        }
+        if any(&["Date", "Time", "Date & time"]) {
+            heading(ui, "DATE AND TIME");
+            row(ui, Icon::Calendar, "Date", Act::Insert("date"));
+            row(ui, Icon::Clock, "Time", Act::Insert("time"));
+            row(ui, Icon::Calendar, "Date & time", Act::Insert("datetime"));
+        }
+        if any(&["Equation", "Symbol"]) {
+            heading(ui, "MATH AND SYMBOLS");
+            row(ui, Icon::Equation, "Equation", Act::Insert("equation"));
+            row(ui, Icon::Symbol, "Symbol", Act::Symbols);
+        }
+        if let Some(act) = chosen {
+            acts.push(act);
+            ui.data_mut(|d| d.insert_temp(query_id, String::new()));
+            ui.close();
+        }
+    });
+}
+
+/// The one-row toolbar of the drawing view: undo and redo for strokes, the pointers, the pens, the
+/// shapes, the pressure switch, and what is done with the drawing. The way back to the words is
+/// the Type pointer, or the Text entry of the header's menu.
+pub fn compact_draw_toolbar(ui: &mut Ui, view: &View<'_>, t: &Tokens) -> Vec<Act> {
+    let mut acts = Vec::new();
+    scrolling_ribbon(ui, "compact-draw-bar", t, |ui| {
+        ui.horizontal_centered(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.add_space(6.0);
+            if chip(ui, "Undo stroke", "Take the last stroke back", false, t, |p, r| icons::paint(p, r.shrink(11.0), Icon::Undo, t.text)).clicked() {
+                acts.push(Act::InkUndo);
+            }
+            let redo = view.ink_redo;
+            if chip(ui, "Redo stroke", "Put the stroke back", false, t, |p, r| icons::paint(p, r.shrink(11.0), Icon::Redo, if redo { t.text } else { t.muted }))
+                .clicked()
+                && redo
+            {
+                acts.push(Act::InkRedo);
+            }
+            divider(ui, t);
+            quick_tools(ui, view, t, &mut acts);
+            // Pressure on or off: off is a sensitivity of nothing, on gives the middle of the wedge back.
+            let on = view.sensitivity > 0;
+            ui.label(egui::RichText::new("Pressure").size(13.0).color(t.text));
+            if ui.add_enabled(view.pressure_available, egui::Checkbox::without_text(&mut { on })).on_hover_text("Press harder for a thicker line").clicked() {
+                acts.push(Act::InkSensitivity(if on { 0 } else { 50 }));
+            }
+            divider(ui, t);
+            shapes_menu(ui, view, t, &mut acts);
+            divider(ui, t);
+            if chip(ui, "Drawing area", "Put a sheet to draw on into the page", false, t, |p, r| icons::paint(p, r.shrink(11.0), Icon::Pen, t.text)).clicked() {
+                acts.push(Act::InkInsert);
+            }
+            if chip(ui, "Save as picture", "Write the drawing again with no pen readings in it, for sending on", false, t, |p, r| {
+                icons::paint(p, r.shrink(11.0), Icon::Picture, t.text)
+            })
+            .clicked()
+            {
+                acts.push(Act::InkExportPlain);
+            }
+            if chip(ui, "Full page", "Hide everything but the page", false, t, |p, r| icons::paint(p, r.shrink(11.0), Icon::FullPage, t.text)).clicked() {
+                acts.push(Act::ToggleFullPage);
+            }
+        });
+    });
+    acts
+}
+
+/// The shapes as one menu, in two shelves: lines, then closed shapes.
+fn shapes_menu(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
+    use notecraft_ink::shapes::Shape;
+    let in_hand = matches!(view.pointer, Pointer::Shape(_));
+    let button = ui.add(egui::Button::new(egui::RichText::new("Shapes").size(13.0).color(if in_hand { t.accent } else { t.text })).min_size(vec2(84.0, 36.0)));
+    egui::Popup::menu(&button).show(|ui| {
+        ui.set_min_width(190.0);
+        for (name, shapes) in [("LINES", &[Shape::Line, Shape::Arrow][..]), ("SHAPES", &[Shape::Rectangle, Shape::RoundedRectangle, Shape::Square, Shape::Circle, Shape::Ellipse, Shape::Diamond, Shape::Triangle, Shape::Star][..])] {
+            ui.label(egui::RichText::new(name).size(11.0).color(t.muted));
+            for s in shapes {
+                if shape_button(ui, *s, view.pointer == Pointer::Shape(*s), t).clicked() {
+                    acts.push(Act::InkPointer(Pointer::Shape(*s)));
+                    ui.close();
+                }
+            }
+        }
+    });
 }
 
 /// A button that opens something: its words, and a small chevron at the end.
@@ -1797,16 +1928,61 @@ fn colour_swatch(ui: &mut Ui, colour: Option<notecraft_model::NodeColor>, here: 
     resp.on_hover_text(name)
 }
 
+/// The size picker: a grid of squares, lit up to the pointer, with the size named above it. The
+/// square pressed, as (row, column) from zero.
+fn table_grid(ui: &mut Ui, id: egui::Id, t: &Tokens) -> Option<(usize, usize)> {
+    const MOST: usize = 8;
+    const SIDE: f32 = 17.0;
+    const GAP: f32 = 3.0;
+    let open_id = id;
+        let across = MOST as f32 * (SIDE + GAP) - GAP;
+        // The size is named above the grid, as OneNote names it, so the rect is
+        // taken first and written into once the pointer has been read.
+        let (naming, _) = ui.allocate_exact_size(vec2(across, 18.0), Sense::hover());
+        let (grid, _) = ui.allocate_exact_size(vec2(across, across), Sense::hover());
+        // Every square is its own button, named for the size it picks: the grid
+        // then answers the keyboard and a screen reader, not only the pointer.
+        let mut over = None;
+        let mut chose = None;
+        let mut cells = Vec::with_capacity(MOST * MOST);
+        for r in 0..MOST {
+            for c in 0..MOST {
+                let at = grid.min + vec2(c as f32 * (SIDE + GAP), r as f32 * (SIDE + GAP));
+                let cell = egui::Rect::from_min_size(at, egui::vec2(SIDE, SIDE));
+                let resp = ui.interact(cell, open_id.with((r, c)), Sense::click());
+                let name = format!("{} x {} Table", c + 1, r + 1);
+                let enabled = ui.is_enabled();
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &name));
+                if resp.hovered() {
+                    over = Some((r, c));
+                }
+                if resp.clicked() {
+                    chose = Some((r, c));
+                }
+                cells.push((r, c, cell));
+            }
+        }
+        let paint = ui.painter();
+        for (r, c, cell) in cells {
+            let lit = over.is_some_and(|(hr, hc)| r <= hr && c <= hc);
+            let (fill, line) = if lit { (t.accent.gamma_multiply(0.25), t.accent) } else { (t.editor, t.table_line) };
+            paint.rect_filled(cell, 1.0, fill);
+            paint.rect_stroke(cell, 1.0, egui::Stroke::new(1.0, line), egui::StrokeKind::Inside);
+        }
+        let title = match over {
+            Some((r, c)) => format!("{} x {} Table", c + 1, r + 1),
+            None => "Table".to_string(),
+        };
+        paint.text(naming.left_top(), egui::Align2::LEFT_TOP, title, egui::FontId::proportional(13.0), t.text);
+        chose
+}
+
 /// OneNote's Table button: a grid to pick the size from, the way OneNote picks one.
 ///
 /// Running the pointer over the grid lights the cells up to it and names the size, and a
 /// click puts a table of that size on the page. OneNote's menu ends with a dialog and a
 /// new Excel spreadsheet; the dialog is not built, and the spreadsheet is GridCraft's.
 fn table_menu(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
-    const MOST: usize = 8;
-    const SIDE: f32 = 17.0;
-    const GAP: f32 = 3.0;
-
     let resp = big_menu(ui, Icon::Table, "Table", "A table: pick its size", t);
     let open_id = egui::Id::new("ribbon-insert-table");
     let mut open = ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false));
@@ -1824,46 +2000,7 @@ fn table_menu(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
-                let across = MOST as f32 * (SIDE + GAP) - GAP;
-                // The size is named above the grid, as OneNote names it, so the rect is
-                // taken first and written into once the pointer has been read.
-                let (naming, _) = ui.allocate_exact_size(vec2(across, 18.0), Sense::hover());
-                let (grid, _) = ui.allocate_exact_size(vec2(across, across), Sense::hover());
-                // Every square is its own button, named for the size it picks: the grid
-                // then answers the keyboard and a screen reader, not only the pointer.
-                let mut over = None;
-                let mut chose = None;
-                let mut cells = Vec::with_capacity(MOST * MOST);
-                for r in 0..MOST {
-                    for c in 0..MOST {
-                        let at = grid.min + vec2(c as f32 * (SIDE + GAP), r as f32 * (SIDE + GAP));
-                        let cell = egui::Rect::from_min_size(at, egui::vec2(SIDE, SIDE));
-                        let resp = ui.interact(cell, open_id.with((r, c)), Sense::click());
-                        let name = format!("{} x {} Table", c + 1, r + 1);
-                        let enabled = ui.is_enabled();
-                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &name));
-                        if resp.hovered() {
-                            over = Some((r, c));
-                        }
-                        if resp.clicked() {
-                            chose = Some((r, c));
-                        }
-                        cells.push((r, c, cell));
-                    }
-                }
-                let paint = ui.painter();
-                for (r, c, cell) in cells {
-                    let lit = over.is_some_and(|(hr, hc)| r <= hr && c <= hc);
-                    let (fill, line) = if lit { (t.accent.gamma_multiply(0.25), t.accent) } else { (t.editor, t.table_line) };
-                    paint.rect_filled(cell, 1.0, fill);
-                    paint.rect_stroke(cell, 1.0, egui::Stroke::new(1.0, line), egui::StrokeKind::Inside);
-                }
-                let title = match over {
-                    Some((r, c)) => format!("{} x {} Table", c + 1, r + 1),
-                    None => "Table".to_string(),
-                };
-                paint.text(naming.left_top(), egui::Align2::LEFT_TOP, title, egui::FontId::proportional(13.0), t.text);
-                if let Some((r, c)) = chose {
+                if let Some((r, c)) = table_grid(ui, open_id, t) {
                     acts.push(Act::InsertTable(r + 1, c + 1));
                     picked = true;
                 }
@@ -1897,6 +2034,59 @@ fn rule_lines_menu(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>
     paper_popup(ui, &resp, open_id, view, t, acts);
 }
 
+/// The papers and page colours, as a list to put in a popup or a menu. True when one was picked.
+fn paper_shelves(ui: &mut Ui, rules: RuleLines, page_colour: Option<notecraft_model::NodeColor>, t: &Tokens, acts: &mut Vec<Act>) -> bool {
+    let mut picked = false;
+    ui.spacing_mut().item_spacing = vec2(8.0, 5.0);
+    let shelf = |ui: &mut Ui, title: &str, papers: &[RuleLines], acts: &mut Vec<Act>, picked: &mut bool| {
+        ui.label(egui::RichText::new(title).strong().color(t.text));
+        ui.horizontal(|ui| {
+            for r in papers {
+                if paper_swatch(ui, *r, rules == *r, t).clicked() {
+                    acts.push(Act::RuleLines(*r));
+                    *picked = true;
+                }
+            }
+        });
+    };
+    shelf(ui, "No lines", &[RuleLines::None], acts, &mut picked);
+    shelf(ui, "Rule lines", &RuleLines::RULED, acts, &mut picked);
+    shelf(ui, "Grid lines", &RuleLines::GRIDS, acts, &mut picked);
+    shelf(ui, "NoteCraft's own", &RuleLines::CRAFT, acts, &mut picked);
+    ui.add_space(1.0);
+    ui.label(egui::RichText::new("Every fifth line is slightly stronger for easier counting.").small().color(t.muted));
+    ui.separator();
+    // OneNote's Page Color, under the paper: a pale wash behind the words.
+    ui.label(egui::RichText::new("Page colour").strong().color(t.text));
+    ui.horizontal(|ui| {
+        if colour_swatch(ui, None, page_colour.is_none(), t).clicked() {
+            acts.push(Act::PageColour(None));
+            picked = true;
+        }
+        for c in notecraft_model::NodeColor::ALL {
+            if colour_swatch(ui, Some(c), page_colour == Some(c), t).clicked() {
+                acts.push(Act::PageColour(Some(c)));
+                picked = true;
+            }
+        }
+    });
+    ui.label(egui::RichText::new("The paper and colour apply to this page only.").small().color(t.muted));
+    if SHOW_UNBUILT {
+        ui.separator();
+        ui.add_enabled(false, egui::Label::new(egui::RichText::new("Rule line colour (not built)").color(t.muted)));
+    }
+    picked
+}
+
+/// The page background as a submenu of a menu: the same papers and colours as the ribbon's.
+pub fn paper_menu(ui: &mut Ui, rules: RuleLines, page_colour: Option<notecraft_model::NodeColor>, t: &Tokens, acts: &mut Vec<Act>) {
+    ui.menu_button("Page background", |ui| {
+        if paper_shelves(ui, rules, page_colour, t, acts) {
+            ui.close();
+        }
+    });
+}
+
 /// The gallery of papers and page colours, opened under `anchor` when it is pressed and closed by
 /// a choice, a press elsewhere or Escape. Used by the ribbon's Format Background and the quick bar.
 fn paper_popup(ui: &mut Ui, anchor: &egui::Response, open_id: egui::Id, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
@@ -1912,43 +2102,7 @@ fn paper_popup(ui: &mut Ui, anchor: &egui::Response, open_id: egui::Id, view: &V
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).corner_radius(8.0).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
                     ui.spacing_mut().item_spacing = vec2(8.0, 5.0);
-                    let shelf = |ui: &mut Ui, title: &str, papers: &[RuleLines], acts: &mut Vec<Act>, picked: &mut bool| {
-                        ui.label(egui::RichText::new(title).strong().color(t.text));
-                        ui.horizontal(|ui| {
-                            for r in papers {
-                                if paper_swatch(ui, *r, view.rules == *r, t).clicked() {
-                                    acts.push(Act::RuleLines(*r));
-                                    *picked = true;
-                                }
-                            }
-                        });
-                    };
-                    shelf(ui, "No lines", &[RuleLines::None], acts, &mut picked);
-                    shelf(ui, "Rule lines", &RuleLines::RULED, acts, &mut picked);
-                    shelf(ui, "Grid lines", &RuleLines::GRIDS, acts, &mut picked);
-                    shelf(ui, "NoteCraft's own", &RuleLines::CRAFT, acts, &mut picked);
-                    ui.add_space(1.0);
-                    ui.label(egui::RichText::new("Every fifth line is slightly stronger for easier counting.").small().color(t.muted));
-                    ui.separator();
-                    // OneNote's Page Color, under the paper: a pale wash behind the words.
-                    ui.label(egui::RichText::new("Page colour").strong().color(t.text));
-                    ui.horizontal(|ui| {
-                        if colour_swatch(ui, None, view.page_colour.is_none(), t).clicked() {
-                            acts.push(Act::PageColour(None));
-                            picked = true;
-                        }
-                        for c in notecraft_model::NodeColor::ALL {
-                            if colour_swatch(ui, Some(c), view.page_colour == Some(c), t).clicked() {
-                                acts.push(Act::PageColour(Some(c)));
-                                picked = true;
-                            }
-                        }
-                    });
-                    ui.label(egui::RichText::new("The paper and colour apply to this page only.").small().color(t.muted));
-                    if SHOW_UNBUILT {
-                        ui.separator();
-                        ui.add_enabled(false, egui::Label::new(egui::RichText::new("Rule line colour (not built)").color(t.muted)));
-                    }
+                    picked = paper_shelves(ui, view.rules, view.page_colour, t, acts);
                 });
             })
             .response;

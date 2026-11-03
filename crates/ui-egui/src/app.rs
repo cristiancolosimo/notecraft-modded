@@ -2030,8 +2030,8 @@ impl NoteCraftApp {
         ui.advance_cursor_after_rect(row);
     }
 
-    /// The menu at the end of the header: the File screen and the ribbon's other tabs, which the
-    /// one-row toolbar leaves out.
+    /// The menu at the end of the header: what the one-row toolbars leave out. Text or drawing, how the
+    /// page is shown (view, zoom, theme, window, source, background), the page's history, and File.
     fn more_menu(&mut self, ui: &mut Ui, on: &Tokens) {
         let (rect, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
         let painter = ui.painter_at(rect);
@@ -2041,21 +2041,122 @@ impl NoteCraftApp {
         for dx in [-6.0, 0.0, 6.0] {
             painter.circle_filled(rect.center() + vec2(dx, 0.0), 1.8, on.text);
         }
-        let resp = resp.on_hover_text("File, and the other ribbon tabs");
+        let resp = resp.on_hover_text("View, history and File");
+        let t = *on;
         let mut acts = Vec::new();
+        let mut mode = None;
+        let drawing = self.ribbon_tab == "Draw";
+        let layout = if self.full_page { 1 } else if self.split_panes { 2 } else { 0 };
+        let zoom = self.zoom_percent;
+        let has_page = self.editor.is_some();
+        let (rules, colour) = (self.rules, self.editor.as_ref().and_then(|e| e.colour));
+        let (top, source, current) = (self.always_on_top, self.show_source, self.mode_pref);
+        let accent = self.accent;
         egui::Popup::menu(&resp).show(|ui| {
-            ui.set_min_width(150.0);
-            if ui.button("File").clicked() {
+            ui.set_min_width(300.0);
+            let heading = |ui: &mut Ui, name: &str| {
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(name).size(11.0).color(t.muted));
+            };
+            // One row of choices, the chosen one lit: the index pressed.
+            let choose = |ui: &mut Ui, labels: &[&str], now: usize| -> Option<usize> {
+                let mut pressed = None;
+                ui.horizontal(|ui| {
+                    for (i, l) in labels.iter().enumerate() {
+                        if ui.selectable_label(i == now, *l).clicked() {
+                            pressed = Some(i);
+                        }
+                    }
+                });
+                pressed
+            };
+            heading(ui, "MODE");
+            if let Some(i) = choose(ui, &["Text", "Draw"], usize::from(drawing)) {
+                mode = Some(if i == 1 { "Draw" } else { "Home" });
+            }
+            heading(ui, "VIEW");
+            match choose(ui, &["Normal", "Full page", "Split"], layout) {
+                Some(i) if i != layout => {
+                    // Leaving the layout in hand, then entering the other: each is a toggle.
+                    match layout {
+                        1 => acts.push(ribbon::Act::ToggleFullPage),
+                        2 => acts.push(ribbon::Act::TogglePanes),
+                        _ => {}
+                    }
+                    match i {
+                        1 => acts.push(ribbon::Act::ToggleFullPage),
+                        2 => acts.push(ribbon::Act::TogglePanes),
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+            ui.label(egui::RichText::new("Split puts the notebooks and sections in one column, the pages in the next.").size(11.0).color(t.muted));
+            ui.horizontal(|ui| {
+                ui.label("Zoom");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Fit width").clicked() {
+                        acts.push(ribbon::Act::PageWidth);
+                    }
+                    if ui.button("+").clicked() {
+                        acts.push(ribbon::Act::Zoom(1));
+                    }
+                    ui.label(format!("{zoom}%"));
+                    if ui.button("\u{2212}").clicked() {
+                        acts.push(ribbon::Act::Zoom(-1));
+                    }
+                });
+            });
+            ui.label("Theme");
+            let now = match current {
+                ModePref::Light => 0,
+                ModePref::Dark => 1,
+                ModePref::System => 2,
+            };
+            let theme = choose(ui, &["Light", "Dark", "Follow system"], now);
+            if let Some(i) = theme.filter(|i| *i != now) {
+                mode = mode.or(Some(["light", "dark", "system"][i]));
+            }
+            if floating::menu_check_row(ui, top, "Always on top", &t).clicked() {
+                acts.push(ribbon::Act::ToggleAlwaysOnTop);
+            }
+            if floating::menu_check_row(ui, source, "Show the page's HTML", &t).clicked() {
+                acts.push(ribbon::Act::ToggleSource);
+            }
+            ui.separator();
+            heading(ui, "PAGE");
+            ribbon::paper_menu(ui, rules, colour, &t, &mut acts);
+            ui.separator();
+            heading(ui, "HISTORY");
+            ui.add_enabled_ui(has_page, |ui| {
+                if floating::menu_row(ui, None, "Page versions...", &t).clicked() {
+                    acts.push(ribbon::Act::PageVersions);
+                    ui.close();
+                }
+                if floating::menu_row(ui, None, "Notebook recycle bin...", &t).clicked() {
+                    acts.push(ribbon::Act::RecycleBin);
+                    ui.close();
+                }
+            });
+            ui.separator();
+            heading(ui, "FILE");
+            if floating::menu_row(ui, None, "File", &t).clicked() {
                 acts.push(ribbon::Act::File);
                 ui.close();
             }
-            for name in ["Home", "Insert", "Draw", "History", "View"] {
-                if ui.button(name).clicked() {
-                    acts.push(ribbon::Act::Tab(name.to_string()));
-                    ui.close();
-                }
-            }
         });
+        match mode {
+            Some("Home" | "Draw") => {
+                let tab = mode.unwrap_or("Home");
+                self.ribbon_act(ribbon::Act::Tab(tab.to_string()));
+                // Drawing means the pen is in hand, and text means the caret is.
+                self.pointer = if tab == "Draw" { ribbon::Pointer::Draw } else { ribbon::Pointer::Write };
+            }
+            Some("light") => self.set_theme(Theme { mode: Mode::Light, accent }),
+            Some("dark") => self.set_theme(Theme { mode: Mode::Dark, accent }),
+            Some("system") => self.follow_system_theme(accent),
+            _ => {}
+        }
         for a in acts {
             self.ribbon_act(a);
         }
@@ -2694,17 +2795,16 @@ impl NoteCraftApp {
             }
             return;
         }
-        if self.compact_ui && ribbon::resolve_tab(&tab, source, view.in_table) == "Home" {
-            let acts = {
-                let mut acts = Vec::new();
-                egui::Panel::top("toolbar").exact_size(48.0).frame(egui::Frame::new().fill(tokens.panel).inner_margin(egui::Margin::symmetric(4, 0))).show(
-                    ui,
-                    |ui| {
-                        acts = ribbon::compact_toolbar(ui, &view, &tokens);
-                    },
-                );
-                acts
-            };
+        if self.compact_ui {
+            let drawing = tab == "Draw";
+            let mut acts = Vec::new();
+            let height = if drawing { ribbon::QUICK_BAR_H } else { 48.0 };
+            egui::Panel::top("toolbar").exact_size(height).frame(egui::Frame::new().fill(tokens.panel).inner_margin(egui::Margin::symmetric(4, 0))).show(
+                ui,
+                |ui| {
+                    acts = if drawing { ribbon::compact_draw_toolbar(ui, &view, &tokens) } else { ribbon::compact_toolbar(ui, &view, &tokens) };
+                },
+            );
             for a in acts {
                 self.ribbon_act(a);
             }
@@ -2960,7 +3060,13 @@ impl NoteCraftApp {
             ribbon::Act::Justify(strength) => self.apply_justify(strength),
             ribbon::Act::PageDirection(d) => self.apply_page_direction(d),
             ribbon::Act::Embedding(d) => self.apply_embedding(d),
-            ribbon::Act::InkPointer(p) => self.pointer = p,
+            ribbon::Act::InkPointer(p) => {
+                self.pointer = p;
+                // The words' own pointer is the way back to the text toolbar.
+                if self.compact_ui && p == ribbon::Pointer::Write && self.ribbon_tab == "Draw" {
+                    self.ribbon_tab = "Home".to_string();
+                }
+            }
             ribbon::Act::InkPen(i) => {
                 self.nib = i.min(self.rack.len().saturating_sub(1));
                 self.pointer = ribbon::Pointer::Draw;
