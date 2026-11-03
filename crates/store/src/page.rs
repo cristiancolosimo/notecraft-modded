@@ -398,6 +398,40 @@ pub fn set_appearance(dir: &Path, paper: Option<&str>, colour: Option<&str>) -> 
     write_atomic(&file, &out)
 }
 
+const SHEET_KEY: &str = "sheet";
+const SHEET_META: &str = "notecraft:sheet";
+
+/// How the page's drawing is laid out, as written: `a4` for separate A4 sheets, or `None` for the
+/// page that has no end, which is what a page says until it is changed.
+pub fn sheet(dir: &Path) -> Result<Option<String>> {
+    let (format, file) = page_file(dir).ok_or_else(|| StoreError::NotFound(format!("{} is not a page", dir.display())))?;
+    let text = fs::read_to_string(&file).map_err(|e| StoreError::io("read", &file, e))?;
+    Ok(match format {
+        PageFormat::Html => html::meta(&text, SHEET_META),
+        PageFormat::Cmgfm => frontmatter::value(&frontmatter::split_front(&text).0, SHEET_KEY),
+    }
+    .map(|v| v.trim().to_string())
+    .filter(|v| !v.is_empty()))
+}
+
+/// Writes it into the page's own file. `None` takes the line out again.
+pub fn set_sheet(dir: &Path, sheet: Option<&str>) -> Result<()> {
+    let (format, file) = page_file(dir).ok_or_else(|| StoreError::NotFound(format!("{} is not a page", dir.display())))?;
+    let text = fs::read_to_string(&file).map_err(|e| StoreError::io("read", &file, e))?;
+    let out = match format {
+        PageFormat::Html => html::set_meta(&text, SHEET_META, sheet.unwrap_or_default()),
+        PageFormat::Cmgfm => {
+            let (front, rest) = frontmatter::split_front(&text);
+            let front = match sheet {
+                Some(v) => frontmatter::set_value(&front, SHEET_KEY, v),
+                None => frontmatter::remove_value(&front, SHEET_KEY),
+            };
+            format!("{front}{rest}")
+        }
+    };
+    write_atomic(&file, &out)
+}
+
 const COLUMNS_KEY: &str = "columns";
 const COLUMNS_META: &str = "notecraft:columns";
 

@@ -3027,6 +3027,27 @@ fn the_code_view_lists_the_pages_files_and_shows_the_one_that_is_picked() {
 }
 
 /// The paper a page is drawn on and the colour behind it are the page's own: chosen in
+/// A4 sheets, written into the page's file; pressed again, the page has no end once more.
+#[test]
+fn a_page_can_be_laid_out_as_a4_sheets_and_back() {
+    let (_t, app, s) = sample_app("ui-page-sheets");
+    let mut h = sized_harness(app, LIGHT, egui::vec2(2000.0, 900.0));
+    h.run();
+    let page = s.md_page.to_string_lossy().into_owned();
+    ask(&mut h, "ui.open", json!({"path": page})).expect("open");
+    settle(&mut h);
+    let file = s.md_page.join("index.md");
+    assert!(!std::fs::read_to_string(&file).expect("read").contains("sheet:"), "a page has no sheets to begin with");
+    h.get_by_label("Draw").click();
+    settle(&mut h);
+    h.get_by_label("A4 sheets").click();
+    settle(&mut h);
+    assert!(std::fs::read_to_string(&file).expect("read").contains("sheet: a4"), "the page keeps its sheets");
+    h.get_by_label("A4 sheets").click();
+    settle(&mut h);
+    assert!(!std::fs::read_to_string(&file).expect("read").contains("sheet:"), "and drops them again");
+}
+
 /// Format Background, written into the page's file, and there again when it is reopened.
 #[test]
 fn a_page_keeps_the_paper_and_the_colour_it_was_given() {

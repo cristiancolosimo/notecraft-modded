@@ -309,6 +309,8 @@ struct Editor {
     /// keeps them. `None` means the page says nothing and the window's own choice stands.
     paper: Option<ribbon::RuleLines>,
     colour: Option<notecraft_model::NodeColor>,
+    /// The page's drawing is laid out as separate A4 sheets, not as a page with no end.
+    sheet_a4: bool,
     /// What the page looked like before each change, so a change can be taken back.
     history: crate::history::History,
     /// The ink files in the page's folder. The folder is what decides: the page's own
@@ -1200,6 +1202,7 @@ impl NoteCraftApp {
                 ink_files: notecraft_store::page::ink_files(dir),
                 paper: appearance.0,
                 colour: appearance.1,
+                sheet_a4: notecraft_store::page::sheet(dir).ok().flatten().as_deref() == Some("a4"),
                 history: crate::history::History::new(crate::history::Step::new(first.0, first.1, first.2, None, crate::history::Kind::Edit)),
                 origin: egui::Pos2::ZERO,
             });
@@ -2671,6 +2674,7 @@ impl NoteCraftApp {
             full_page: self.full_page,
             rules: self.rules,
             hide_title: self.hide_title,
+            sheet_a4: self.editor.as_ref().is_some_and(|e| e.sheet_a4),
             zoom_percent: self.zoom_percent,
             pointer: self.pointer,
             rack: &self.rack,
@@ -2705,12 +2709,12 @@ impl NoteCraftApp {
         if self.compact_ui && ribbon::resolve_tab(&tab, source, view.in_table) == "Home" {
             let acts = {
                 let mut acts = Vec::new();
-                egui::Panel::top("toolbar").exact_size(48.0).frame(egui::Frame::new().fill(tokens.panel).inner_margin(egui::Margin::symmetric(4, 0))).show(
-                    ui,
-                    |ui| {
+                egui::Panel::top("toolbar")
+                    .exact_size(48.0)
+                    .frame(egui::Frame::new().fill(tokens.panel).inner_margin(egui::Margin::symmetric(4, 0)))
+                    .show(ui, |ui| {
                         acts = ribbon::compact_toolbar(ui, &view, &tokens);
-                    },
-                );
+                    });
                 acts
             };
             for a in acts {
@@ -3006,6 +3010,15 @@ impl NoteCraftApp {
             }
             ribbon::Act::InkUndo => self.ink_undo(),
             ribbon::Act::InkRedo => self.ink_redo(),
+            ribbon::Act::PageSheets(on) => {
+                let Some(ed) = self.editor.as_mut() else {
+                    self.say("Open a page first");
+                    return;
+                };
+                ed.sheet_a4 = on;
+                let path = path_str(&ed.dir);
+                self.run("page.sheet", &params(&[("path", path.as_str()), ("sheet", if on { "a4" } else { "none" })]));
+            }
             ribbon::Act::InkInsert => self.ink_insert(),
             ribbon::Act::InkExportPlain => self.ink_export_plain(),
         }
@@ -4605,13 +4618,28 @@ impl NoteCraftApp {
                                 // The canvas grows with the ink, down and to the right, without
                                 // a limit: the page is scrolled both ways to reach it.
                                 let far = pad.as_ref().map(|p| p.far()).unwrap_or((0.0, 0.0));
-                                let size = crate::inkpad::canvas((far.0 * zoom_scale, far.1 * zoom_scale), used, view, ui.max_rect().width());
+                                let size =
+                                    crate::inkpad::canvas((far.0 * zoom_scale, far.1 * zoom_scale), used, view, ui.max_rect().width(), ed.sheet_a4);
                                 let want = size.y;
                                 if want > used {
                                     ui.allocate_space(vec2(size.x, want - used));
                                 }
                                 let body = egui::Rect::from_min_size(egui::pos2(ui.max_rect().min.x, top.y), size);
                                 page_rect = Some(body);
+                                if ed.sheet_a4 {
+                                    // The gap between two sheets: a tinted band with an edge on each side,
+                                    // light enough that words running across it stay readable.
+                                    let (sheet, pitch) = crate::inkpad::a4_sheet(body.width());
+                                    let painter = ui.painter_at(body);
+                                    let mut y = body.min.y + sheet;
+                                    while y < body.max.y - 1.0 {
+                                        let gap = egui::Rect::from_min_size(egui::pos2(body.min.x, y), vec2(body.width(), pitch - sheet));
+                                        painter.rect_filled(gap, 0.0, tokens.text.gamma_multiply(0.12));
+                                        painter.hline(gap.x_range(), gap.min.y, egui::Stroke::new(1.0, tokens.muted));
+                                        painter.hline(gap.x_range(), gap.max.y, egui::Stroke::new(1.0, tokens.muted));
+                                        y += pitch;
+                                    }
+                                }
                                 if let Some(pad) = pad.as_mut() {
                                     ink_changed |=
                                         crate::inkpad::show(ui, body, pad, pen, pressure, !pen_only || stylus_in_contact, &tokens, zoom_scale);
@@ -6124,7 +6152,10 @@ impl NoteCraftApp {
                 (v.close_requested(), (v.inner_rect, v.outer_rect, v.maximized.unwrap_or(false)))
             });
             if closing && let (Some(inner), Some(outer), maximised) = geometry {
-                let _ = self.session.settings.set("window_geometry", &window_geometry(outer.min.x, outer.min.y, inner.width(), inner.height(), maximised));
+                let _ = self
+                    .session
+                    .settings
+                    .set("window_geometry", &window_geometry(outer.min.x, outer.min.y, inner.width(), inner.height(), maximised));
             }
         }
         // The frame cap: a frame is not started until enough time has gone since the last one.

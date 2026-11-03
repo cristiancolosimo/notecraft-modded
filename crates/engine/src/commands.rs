@@ -244,6 +244,20 @@ fn page_paper(s: &mut Session, p: &Params) -> Result<Output, EngineError> {
     Ok(Output::Text(format!("{} {}", paper.unwrap_or_else(|| "none".into()), colour.unwrap_or_else(|| "none".into()))))
 }
 
+fn page_sheet(s: &mut Session, p: &Params) -> Result<Output, EngineError> {
+    let path = s.resolve(req(p, "path")?)?;
+    let Some(want) = p.get("sheet") else {
+        return Ok(Output::Text(page::sheet(&path)?.unwrap_or_else(|| "none".into())));
+    };
+    let kept = match want.trim() {
+        "" | "none" => None,
+        "a4" => Some("a4"),
+        other => return Err(EngineError::BadParam(format!("'{other}' is not a sheet layout: a4 or none"))),
+    };
+    page::set_sheet(&path, kept)?;
+    Ok(Output::Text(kept.unwrap_or("none").to_string()))
+}
+
 fn page_columns(s: &mut Session, p: &Params) -> Result<Output, EngineError> {
     let path = s.resolve(req(p, "path")?)?;
     let Some(want) = p.get("widths") else {
@@ -432,6 +446,14 @@ paper (optional): none, narrow, college, standard, wide, grid-small, grid-medium
 color (optional): purple, blue, teal, green, yellow, orange, red, magenta, gray, or none. Without either, the page's own are reported",
         changes_tree: false,
         run: page_paper,
+    },
+    CommandSpec {
+        id: "page.sheet",
+        label: "How a page's drawing is laid out: A4 sheets, or a page with no end",
+        params: "path (required): the page
+sheet (optional): a4 for separate A4 sheets, or none for the page with no end. Without it, the current layout is reported",
+        changes_tree: false,
+        run: page_sheet,
     },
     CommandSpec {
         id: "page.columns",

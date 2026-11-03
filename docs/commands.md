@@ -147,6 +147,15 @@ Parameters:
 - paper (optional): none, narrow, college, standard, wide, grid-small, grid-medium, grid-large, grid-huge, craft-lines, craft-grid
 - color (optional): purple, blue, teal, green, yellow, orange, red, magenta, gray, or none. Without either, the page's own are reported
 
+## `page.sheet`
+
+How a page's drawing is laid out: A4 sheets, or a page with no end.
+
+Parameters:
+
+- path (required): the page
+- sheet (optional): a4 for separate A4 sheets, or none for the page with no end. Without it, the current layout is reported
+
 ## `page.columns`
 
 How wide the columns of a page's tables are.

@@ -523,7 +523,11 @@ fn options_page(
     ui.add_space(18.0);
     ui.separator();
     ui.label(egui::RichText::new("Toolbar layout").strong().size(15.0).color(t.strong));
-    ui.label(egui::RichText::new("Compact: one row of tools, the rest in the header's menu. Ribbon: the tabs File, Home, Insert, Draw, History and View.").size(11.5).color(t.muted));
+    ui.label(
+        egui::RichText::new("Compact: one row of tools, the rest in the header's menu. Ribbon: the tabs File, Home, Insert, Draw, History and View.")
+            .size(11.5)
+            .color(t.muted),
+    );
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Layout:").strong());
         for (label, compact) in [("Compact", true), ("Ribbon", false)] {

@@ -170,10 +170,27 @@ const EDGE: f32 = 120.0;
 /// the right edge, and from then on it is half a screen wider than the furthest ink, so
 /// there is always room to keep writing. Down, it is always at least the sheet and the words
 /// and half a screen past the lowest ink. There is no limit either way.
-pub fn canvas(far: (f32, f32), used: f32, view: egui::Vec2, column: f32) -> egui::Vec2 {
+pub fn canvas(far: (f32, f32), used: f32, view: egui::Vec2, column: f32, a4: bool) -> egui::Vec2 {
+    if a4 {
+        // Separate A4 sheets as wide as the column: the page grows by whole sheets, one more when
+        // the ink or the words reach the foot of the last, and never sideways.
+        let (sheet, pitch) = a4_sheet(column);
+        let extent = used.max(far.1);
+        let sheets = (extent / pitch).floor() + 1.0 + if extent % pitch > sheet * 0.85 { 1.0 } else { 0.0 };
+        return vec2(column, sheets * pitch);
+    }
     let width = if far.0 > column - EDGE { far.0 + view.x * 0.5 } else { column };
     let height = SHEET_H.max(used + 240.0).max(far.1 + view.y * 0.5);
     vec2(width.max(column), height)
+}
+
+/// The gap between two A4 sheets, in points.
+pub const SHEET_GAP: f32 = 20.0;
+
+/// One A4 sheet as wide as `column`: its height, and how far apart sheets start (the height and the gap).
+pub fn a4_sheet(column: f32) -> (f32, f32) {
+    let height = (column * std::f32::consts::SQRT_2).round();
+    (height, height + SHEET_GAP)
 }
 
 /// The ink of one page.
@@ -1155,20 +1172,30 @@ mod tests {
     }
 
     #[test]
+    fn a4_sheets_grow_by_whole_sheets_and_never_sideways() {
+        let (view, column) = (vec2(800.0, 600.0), 600.0);
+        let (sheet, pitch) = a4_sheet(column);
+        assert_eq!(canvas((0.0, 0.0), 100.0, view, column, true), vec2(column, pitch));
+        assert_eq!(canvas((5000.0, sheet + 10.0), 100.0, view, column, true), vec2(column, 2.0 * pitch));
+        // At the foot of a sheet there is already the next one to write on.
+        assert_eq!(canvas((0.0, sheet * 0.9), 100.0, view, column, true).y, 2.0 * pitch);
+    }
+
+    #[test]
     fn the_canvas_grows_when_ink_reaches_the_edge_and_never_shrinks_below_the_column() {
         let view = vec2(1200.0, 800.0);
         let column = 780.0;
         // Nothing near the right edge: the page is just its column, as before.
-        assert_eq!(canvas((100.0, 100.0), 300.0, view, column).x, column);
+        assert_eq!(canvas((100.0, 100.0), 300.0, view, column, false).x, column);
         // Ink within reach of the edge gives room beyond it, half a screen's worth.
-        let near = canvas((column - 20.0, 100.0), 300.0, view, column);
+        let near = canvas((column - 20.0, 100.0), 300.0, view, column, false);
         assert_eq!(near.x, column - 20.0 + 600.0);
         // Further right still: it keeps going, with no limit.
-        let far = canvas((5000.0, 100.0), 300.0, view, column);
+        let far = canvas((5000.0, 100.0), 300.0, view, column, false);
         assert_eq!(far.x, 5600.0);
         // Down: always the sheet, the text and some room, and half a screen past the lowest ink.
-        assert_eq!(canvas((0.0, 0.0), 300.0, view, column).y, SHEET_H);
-        assert_eq!(canvas((0.0, 3000.0), 300.0, view, column).y, 3400.0);
+        assert_eq!(canvas((0.0, 0.0), 300.0, view, column, false).y, SHEET_H);
+        assert_eq!(canvas((0.0, 3000.0), 300.0, view, column, false).y, 3400.0);
     }
 
     #[test]

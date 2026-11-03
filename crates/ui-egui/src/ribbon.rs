@@ -120,6 +120,8 @@ pub enum Act {
     InkUndo,
     /// Put back the stroke that was taken back.
     InkRedo,
+    /// Lay the page's drawing out as separate A4 sheets (true), or as the page with no end (false).
+    PageSheets(bool),
     /// Put a drawing on the page at the caret.
     InkInsert,
     /// Save the drawing beside the page as a plain picture, with no pen readings in it.
@@ -339,6 +341,8 @@ pub struct View<'a> {
     pub full_page: bool,
     pub rules: RuleLines,
     pub hide_title: bool,
+    /// The page's drawing is laid out as A4 sheets.
+    pub sheet_a4: bool,
     pub zoom_percent: u32,
     /// What the pointer does on the page.
     pub pointer: Pointer,
@@ -771,7 +775,11 @@ pub fn tab_strip(ui: &mut Ui, tab: &str, source: bool, in_table: bool, collapsed
             let painter = ui.painter_at(rect);
             if selected {
                 // A line under the chosen tab, in the accent.
-                painter.rect_filled(egui::Rect::from_min_max(egui::pos2(rect.min.x + 6.0, rect.max.y - 2.0), egui::pos2(rect.max.x - 6.0, rect.max.y)), 1.0, t.accent);
+                painter.rect_filled(
+                    egui::Rect::from_min_max(egui::pos2(rect.min.x + 6.0, rect.max.y - 2.0), egui::pos2(rect.max.x - 6.0, rect.max.y)),
+                    1.0,
+                    t.accent,
+                );
             } else if resp.hovered() {
                 painter.rect_filled(rect.shrink2(vec2(1.0, 3.0)), 3.0, t.row_hover);
             }
@@ -1017,7 +1025,7 @@ fn rows(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 }
 
 /// The styles the Home tab shows in one line.
-const STYLES_AT_HAND: [(&str, &str); 4] = [("Heading 1", "h1"), ("Heading 2", "h2"), ("Normal", "p"), ("Code", "codeblock")];
+const STYLES_AT_HAND: [(&str, &str); 3] = [("Heading 1", "h1"), ("Heading 2", "h2"), ("Normal", "p")];
 
 /// The styles OneNote lists in its Styles gallery, and what each one is here.
 pub const STYLES: [(&str, &str); 12] = [
@@ -1205,7 +1213,6 @@ fn home_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
     }
 }
 
-
 /// The one-row toolbar of the plain writing view: what a writer reaches for, in one line. The rest of
 /// the ribbon is one step away: Insert opens its tab, Draw its own, and the menu at the end of the
 /// header lists the others.
@@ -1318,8 +1325,8 @@ fn gallery(ui: &mut Ui, which: &'static str, current: &str, t: &Tokens, acts: &m
         .inner_margin(4.0)
         .show(ui, |ui| {
             let wide = which == "styles";
-            ui.set_min_size(vec2(if wide { 250.0 } else { 130.0 }, height));
-            ui.set_max_width(if wide { 270.0 } else { 190.0 });
+            ui.set_min_size(vec2(130.0, height));
+            ui.set_max_width(190.0);
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing = vec2(if wide { 0.0 } else { 2.0 }, 2.0);
                 rows_in_box(ui, acts);
@@ -2719,6 +2726,18 @@ Select",
     group(ui, "Edit", t, |ui| {
         if big(ui, Icon::Pen, "Draw\nhere", "Put a sheet to draw on into the page", t).clicked() {
             acts.push(Act::InkInsert);
+        }
+        if big_on(
+            ui,
+            Icon::Page,
+            "A4\nsheets",
+            "Lay this page's drawing out as separate A4 sheets, to scroll between; off, the page has no end",
+            view.sheet_a4,
+            t,
+        )
+        .clicked()
+        {
+            acts.push(Act::PageSheets(!view.sheet_a4));
         }
         if big(ui, Icon::Picture, "Save\npicture", "Write the drawing again with no pen readings in it, for sending on", t).clicked() {
             acts.push(Act::InkExportPlain);

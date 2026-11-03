@@ -159,7 +159,8 @@ pub fn show(ui: &mut Ui, config: &mut Config, enabled: Enabled, t: &Tokens, menu
     }
     // The arrow stays even when the strip is hidden, so it can be brought back.
     let arrow = customize_button(ui, t);
-    let frame = egui::Frame::NONE.fill(menu.panel).stroke(egui::Stroke::new(1.0, menu.rule_line)).corner_radius(4.0).inner_margin(egui::Margin::same(4));
+    let frame =
+        egui::Frame::NONE.fill(menu.panel).stroke(egui::Stroke::new(1.0, menu.rule_line)).corner_radius(4.0).inner_margin(egui::Margin::same(4));
     egui::Popup::menu(&arrow).frame(frame).show(|ui| {
         ui.set_width(floating::MENU_W + 20.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
