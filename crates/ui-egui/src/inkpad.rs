@@ -138,9 +138,11 @@ fn dark() -> bool {
 }
 
 fn shown_colour(c: Rgb) -> Rgb {
-    match (dark(), c) {
-        (true, Rgb(0, 0, 0)) => Rgb(255, 255, 255),
-        (true, Rgb(255, 255, 255)) => Rgb(0, 0, 0),
+    // The pen's "black" is #202020, so near-black and near-white are the ones that swap.
+    let grey = c.0.abs_diff(c.1) < 8 && c.1.abs_diff(c.2) < 8;
+    match (dark() && grey, c.0) {
+        (true, 0..=0x40) => Rgb(0xf2, 0xf2, 0xf2),
+        (true, 0xc0..=0xff) => Rgb(0x20, 0x20, 0x20),
         _ => c,
     }
 }
