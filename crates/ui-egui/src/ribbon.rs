@@ -574,6 +574,16 @@ fn quick_tools(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
         }
     });
     paper_popup(ui, &paper, egui::Id::new("quick-bar-paper"), view, t, acts);
+    // The page's drawing as separate A4 sheets to scroll between, or as a page with no end.
+    if chip(ui, "A4 sheets", "Lay this page's drawing out as separate A4 sheets; off, the page has no end", view.sheet_a4, t, |p, r| {
+        let sheet = egui::Rect::from_center_size(r.center(), vec2(15.0, 21.0));
+        p.rect_stroke(sheet, 1.5, egui::Stroke::new(1.5, t.text), egui::StrokeKind::Inside);
+        p.text(sheet.center(), Align2::CENTER_CENTER, "A4", egui::FontId::proportional(8.5), t.text);
+    })
+    .clicked()
+    {
+        acts.push(Act::PageSheets(!view.sheet_a4));
+    }
     ui.add_space(6.0);
 }
 

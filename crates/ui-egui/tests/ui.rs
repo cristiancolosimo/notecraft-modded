@@ -4944,11 +4944,27 @@ fn full_page_view_swaps_the_ribbon_for_a_quick_draw_bar() {
     h.get_by_label_contains("Full Page").click();
     settle(&mut h);
 
-    for tool in
-        ["Exit full page", "Undo stroke", "Type", "Select", "Lasso Select", "Eraser", "Pen black", "Pen white", "Pen red", "Highlighter yellow"]
-    {
+    for tool in [
+        "Exit full page",
+        "Undo stroke",
+        "Type",
+        "Select",
+        "Lasso Select",
+        "Eraser",
+        "Pen black",
+        "Pen white",
+        "Pen red",
+        "Highlighter yellow",
+        "A4 sheets",
+    ] {
         assert!(h.query_all_by_label(tool).count() >= 1, "{tool} is on the quick bar");
     }
+    // The A4 toggle is on the bar, and writes the layout into the page.
+    h.get_by_label("A4 sheets").click();
+    settle(&mut h);
+    assert!(std::fs::read_to_string(s.md_page.join("index.md")).expect("read").contains("sheet: a4"), "the page keeps its sheets");
+    h.get_by_label("A4 sheets").click();
+    settle(&mut h);
     assert_eq!(h.query_all_by_label("Clipboard").count(), 0, "and the ribbon's groups are gone");
     assert_eq!(h.query_all_by_label_contains("Drop a file onto the page").count(), 0, "so are the hint and the path above the page");
     assert_eq!(h.query_all_by_label_contains("untitled").count(), 0, "and the page's name");
