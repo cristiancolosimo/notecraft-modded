@@ -1176,6 +1176,112 @@ fn home_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
     }
 }
 
+
+/// The one-row toolbar of the plain writing view: what a writer reaches for, in one line. The rest of
+/// the ribbon is one step away: Insert opens its tab, Draw its own, and the menu at the end of the
+/// header lists the others.
+pub fn compact_toolbar(ui: &mut Ui, view: &View<'_>, t: &Tokens) -> Vec<Act> {
+    let mut acts = Vec::new();
+    ui.spacing_mut().item_spacing = vec2(3.0, 0.0);
+    ui.horizontal_centered(|ui| {
+        ui.add_space(10.0);
+        if row_button(ui, Icon::Undo, "Undo", "Ctrl+Z takes back the last change", view.can_undo, t).clicked() && view.can_undo {
+            acts.push(Act::Undo);
+        }
+        if row_button(ui, Icon::Redo, "Redo", "Ctrl+Y puts it back", view.can_redo, t).clicked() && view.can_redo {
+            acts.push(Act::Redo);
+        }
+        toolbar_rule(ui, t);
+        let current = STYLES.iter().find(|(_, k)| *k == view.style).map_or("Normal", |(l, _)| *l);
+        let style = dropdown(ui, current, 116.0, t);
+        egui::Popup::menu(&style).show(|ui| {
+            for (label, kind) in STYLES.iter() {
+                if style_row(ui, label, kind, *kind == view.style, t).clicked() {
+                    acts.push(Act::Block(leak(kind)));
+                    ui.close();
+                }
+            }
+        });
+        toolbar_rule(ui, t);
+        if mark_button(ui, Mark::Bold, "Bold", "Bold (Ctrl+B)", false, t).clicked() {
+            acts.push(Act::Mark("bold"));
+        }
+        if mark_button(ui, Mark::Italic, "Italic", "Italic (Ctrl+I)", false, t).clicked() {
+            acts.push(Act::Mark("italic"));
+        }
+        if mark_button(ui, Mark::Strike, "Strikethrough", "Strike through", false, t).clicked() {
+            acts.push(Act::Mark("strike"));
+        }
+        if small(ui, Some(Icon::Code), "", "Code", "Code, in one line", false, t).clicked() {
+            acts.push(Act::Mark("code"));
+        }
+        if small(ui, Some(Icon::Link), "", "Link", "A link", false, t).clicked() {
+            acts.push(Act::Insert("link"));
+        }
+        toolbar_rule(ui, t);
+        if small(ui, Some(Icon::ListBullet), "", "Bullets", "A bullet list", false, t).clicked() {
+            acts.push(Act::Block("bullet"));
+        }
+        if small(ui, Some(Icon::ListNumber), "", "Numbering", "A numbered list", false, t).clicked() {
+            acts.push(Act::Block("number"));
+        }
+        if small(ui, Some(Icon::Todo), "", "To do", "A to-do box on this line (Ctrl+1)", false, t).clicked() {
+            acts.push(Act::Block("todo"));
+        }
+        if mark_button(ui, Mark::IndentLess, "Decrease indentation", "Decrease indentation (Shift+Tab)", false, t).clicked() {
+            acts.push(Act::Indent(false));
+        }
+        if mark_button(ui, Mark::IndentMore, "Increase indentation", "Increase indentation (Tab)", false, t).clicked() {
+            acts.push(Act::Indent(true));
+        }
+        align_menu(ui, t, &mut acts);
+        if mark_button(ui, Mark::ClearFormat, "Clear formatting", "Take the marks off", false, t).clicked() {
+            acts.push(Act::ClearFormatting);
+        }
+        toolbar_rule(ui, t);
+        let tag = dropdown(ui, "Tag", 80.0, t);
+        egui::Popup::menu(&tag).show(|ui| {
+            for tag in [Tag::ToDo, Tag::Important] {
+                if tag_row(ui, tag, t).clicked() {
+                    acts.push(Act::Tag(tag));
+                    ui.close();
+                }
+            }
+        });
+        if dropdown(ui, "+ Insert", 96.0, t).clicked() {
+            acts.push(Act::Tab("Insert".to_string()));
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add_space(10.0);
+            // Text and Drawing, as two halves of one switch.
+            for (name, tab) in [("Drawing", "Draw"), ("Text", "Home")] {
+                let on = tab == "Home";
+                let label = egui::RichText::new(name).size(13.0).color(if on { t.band_text } else { t.text });
+                let button = egui::Button::new(label).fill(if on { t.accent } else { t.faint }).min_size(vec2(64.0, 30.0));
+                if ui.add(button).clicked() {
+                    acts.push(Act::Tab(tab.to_string()));
+                }
+            }
+        });
+    });
+    acts
+}
+
+/// A button that opens something: its words, and a small chevron at the end.
+fn dropdown(ui: &mut Ui, label: &str, width: f32, t: &Tokens) -> egui::Response {
+    let resp = ui.add(egui::Button::new(egui::RichText::new(label).size(13.0).color(t.text)).min_size(vec2(width, 30.0)));
+    let c = egui::pos2(resp.rect.max.x - 12.0, resp.rect.center().y);
+    ui.painter().add(egui::Shape::line(vec![c + vec2(-3.5, -1.5), c + vec2(0.0, 2.0), c + vec2(3.5, -1.5)], egui::Stroke::new(1.3, t.muted)));
+    resp
+}
+
+fn toolbar_rule(ui: &mut Ui, t: &Tokens) {
+    ui.add_space(5.0);
+    let (rect, _) = ui.allocate_exact_size(vec2(1.0, 24.0), Sense::hover());
+    ui.painter().vline(rect.center().x, rect.y_range(), egui::Stroke::new(1.0, t.faint));
+    ui.add_space(5.0);
+}
+
 /// Whether the controls NoteCraft lists but has not built are drawn. They are hidden: a control that does
 /// nothing is only in the way, on a tablet most of all. Turn it on to see what the roadmap holds.
 pub const SHOW_UNBUILT: bool = false;

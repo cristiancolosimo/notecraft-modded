@@ -5142,3 +5142,23 @@ fn a_selected_box_takes_direction_tags_and_lists_as_a_whole() {
         h.state().body().unwrap_or_default()
     );
 }
+
+/// The compact layout: one row of tools, no tab strip, and the other tabs a click away.
+#[test]
+fn the_compact_toolbar_formats_the_page_and_reaches_the_other_tabs() {
+    let (_t, mut app, s) = sample_app("ui-compact-toolbar");
+    app.set_compact_ui(true);
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = harness(app, LIGHT);
+    settle(&mut h);
+    ask(&mut h, "ui.caret", json!({"block": 1})).expect("caret");
+    pump(&mut h);
+    assert_eq!(h.query_all_by_label("Insert").count(), 0, "the tab strip is gone");
+    h.get_by_label("Bullets").click();
+    h.run();
+    let body = h.state().body().unwrap_or_default().to_string();
+    assert!(body.lines().any(|l| l.starts_with("- ") || l.starts_with("* ")), "the paragraph became a bullet:\n{body}");
+    h.get_by_label("Drawing").click();
+    h.run_steps(2);
+    assert!(h.query_all_by_label("Pen").count() > 0 || h.query_all_by_label("Draw").count() > 0 || h.query_all_by_label("Eraser").count() > 0, "the Draw tab opened");
+}

@@ -592,6 +592,7 @@ pub struct NoteCraftApp {
     code: crate::codeview::State,
     /// Which ribbon tab is open.
     ribbon_tab: String,
+    compact_ui: bool,
     /// What the pen is reporting, where the platform reports anything.
     stylus: crate::stylus::Stylus,
     /// Only a pen writes ink (Android); a finger or a mouse does not.
@@ -735,6 +736,7 @@ impl NoteCraftApp {
             show_source,
             code: crate::codeview::State::default(),
             ribbon_tab: "Home".to_string(),
+            compact_ui: false,
             stylus: crate::stylus::Stylus::default(),
             sync: crate::syncing::Syncing::load(&settings_for_sync),
             pen_only: false,
@@ -1934,10 +1936,13 @@ impl NoteCraftApp {
         let (tab, source, in_table) = (self.ribbon_tab.clone(), self.show_source, self.caret_in_table());
         let title = self.editor.as_ref().map(|e| e.title.trim().to_owned()).filter(|s| !s.is_empty());
         let mut acts = Vec::new();
-        egui::Panel::top("band").frame(egui::Frame::new().fill(t.band)).show_separator_line(false).show(ui, |ui| {
+        // The compact layout: a header in the panel's own colours, and no row of tabs (the toolbar
+        // and the header's menu reach every tab).
+        let (fill, line) = if self.compact_ui { (t.panel, true) } else { (t.band, false) };
+        egui::Panel::top("band").frame(egui::Frame::new().fill(fill)).show_separator_line(line).show(ui, |ui| {
             ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
             self.title_row(ui, title.as_deref());
-            if with_tabs {
+            if with_tabs && !self.compact_ui {
                 ribbon::tab_strip(ui, &tab, source, in_table, &t, &mut acts);
             }
         });
@@ -1946,12 +1951,17 @@ impl NoteCraftApp {
         }
     }
 
+    /// Chooses the compact layout (a one-row toolbar, a plain header) or the classic ribbon.
+    pub fn set_compact_ui(&mut self, on: bool) {
+        self.compact_ui = on;
+    }
+
     /// The band's first row. Anything on it that is not a control moves the window.
     fn title_row(&mut self, ui: &mut Ui, title: Option<&str>) {
-        const H: f32 = 30.0;
-        let on = self.tokens.on_band();
+        let h_row: f32 = if self.compact_ui { 48.0 } else { 30.0 };
+        let on = if self.compact_ui { self.tokens } else { self.tokens.on_band() };
         let ctx = ui.ctx().clone();
-        let row = egui::Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), H));
+        let row = egui::Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), h_row));
         // Added first, so the controls drawn over it win the pointer: only bare band is a handle.
         let handle = ui.interact(row, ui.id().with("title-handle"), Sense::click_and_drag());
         if self.frameless {
@@ -1965,6 +1975,12 @@ impl NoteCraftApp {
         }
         // The choice between the system's title bar and this one, kept in the settings.
         handle.context_menu(|ui| {
+            let layout = if self.compact_ui { "Use the classic ribbon" } else { "Use the compact toolbar" };
+            if ui.button(layout).clicked() {
+                self.compact_ui = !self.compact_ui;
+                let _ = self.session.settings.set("layout", if self.compact_ui { "compact" } else { "classic" });
+                ui.close();
+            }
             let label = if self.frameless { "Use the system title bar" } else { "Use NoteCraft's own title bar" };
             if ui.button(label).clicked() {
                 self.frameless = !self.frameless;
@@ -1991,6 +2007,10 @@ impl NoteCraftApp {
             self.window_buttons(&mut right, &on);
         }
         right.add_space(4.0);
+        if self.compact_ui {
+            self.more_menu(&mut right, &on);
+        }
+        right.add_space(4.0);
         self.theme_menu(&mut right, on);
         right.add_space(6.0);
         self.keyboard_switch(&mut right, on);
@@ -2008,6 +2028,37 @@ impl NoteCraftApp {
             };
         }
         ui.advance_cursor_after_rect(row);
+    }
+
+    /// The menu at the end of the header: the File screen and the ribbon's other tabs, which the
+    /// one-row toolbar leaves out.
+    fn more_menu(&mut self, ui: &mut Ui, on: &Tokens) {
+        let (rect, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
+        let painter = ui.painter_at(rect);
+        if resp.hovered() {
+            painter.rect_filled(rect, 4.0, on.row_hover);
+        }
+        for dx in [-6.0, 0.0, 6.0] {
+            painter.circle_filled(rect.center() + vec2(dx, 0.0), 1.8, on.text);
+        }
+        let resp = resp.on_hover_text("File, and the other ribbon tabs");
+        let mut acts = Vec::new();
+        egui::Popup::menu(&resp).show(|ui| {
+            ui.set_min_width(150.0);
+            if ui.button("File").clicked() {
+                acts.push(ribbon::Act::File);
+                ui.close();
+            }
+            for name in ["Home", "Insert", "Draw", "History", "View"] {
+                if ui.button(name).clicked() {
+                    acts.push(ribbon::Act::Tab(name.to_string()));
+                    ui.close();
+                }
+            }
+        });
+        for a in acts {
+            self.ribbon_act(a);
+        }
     }
 
     /// Minimise, maximise or restore, and close: the buttons the system would have drawn.
@@ -2638,6 +2689,22 @@ impl NoteCraftApp {
                 .show(ui, |ui| {
                     acts = ribbon::quick_draw_bar(ui, &view, &tokens);
                 });
+            for a in acts {
+                self.ribbon_act(a);
+            }
+            return;
+        }
+        if self.compact_ui && ribbon::resolve_tab(&tab, source, view.in_table) == "Home" {
+            let acts = {
+                let mut acts = Vec::new();
+                egui::Panel::top("toolbar").exact_size(48.0).frame(egui::Frame::new().fill(tokens.panel).inner_margin(egui::Margin::symmetric(4, 0))).show(
+                    ui,
+                    |ui| {
+                        acts = ribbon::compact_toolbar(ui, &view, &tokens);
+                    },
+                );
+                acts
+            };
             for a in acts {
                 self.ribbon_act(a);
             }

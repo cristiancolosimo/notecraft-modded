@@ -232,7 +232,9 @@ fn main() -> eframe::Result {
         "NoteCraft",
         options,
         Box::new(move |cc| {
+            let compact = session.settings.get("layout").as_deref() != Some("classic");
             let mut app = NoteCraftApp::new(session).with_clipboard(clipboard);
+            app.set_compact_ui(compact);
             for (key, message) in startup_alerts.drain(..) {
                 app.alert(key, "NoteCraft", &message);
             }
