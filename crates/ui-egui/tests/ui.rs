@@ -5158,7 +5158,8 @@ fn the_compact_toolbar_formats_the_page_and_reaches_the_other_tabs() {
     h.run();
     let body = h.state().body().unwrap_or_default().to_string();
     assert!(body.lines().any(|l| l.starts_with("- ") || l.starts_with("* ")), "the paragraph became a bullet:\n{body}");
-    h.get_by_label("Drawing").click();
+    assert_eq!(h.query_all_by_label("Drawing").count(), 0, "no Text/Drawing switch");
+    h.get_by_label("+ Insert").click();
     h.run_steps(2);
-    assert!(h.query_all_by_label("Pen").count() > 0 || h.query_all_by_label("Draw").count() > 0 || h.query_all_by_label("Eraser").count() > 0, "the Draw tab opened");
+    assert!(h.query_all_by_label("Insert").count() > 0, "the Insert tab opened");
 }

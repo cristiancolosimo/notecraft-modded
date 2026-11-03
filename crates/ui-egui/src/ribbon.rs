@@ -1251,18 +1251,6 @@ pub fn compact_toolbar(ui: &mut Ui, view: &View<'_>, t: &Tokens) -> Vec<Act> {
         if dropdown(ui, "+ Insert", 96.0, t).clicked() {
             acts.push(Act::Tab("Insert".to_string()));
         }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_space(10.0);
-            // Text and Drawing, as two halves of one switch.
-            for (name, tab) in [("Drawing", "Draw"), ("Text", "Home")] {
-                let on = tab == "Home";
-                let label = egui::RichText::new(name).size(13.0).color(if on { t.band_text } else { t.text });
-                let button = egui::Button::new(label).fill(if on { t.accent } else { t.faint }).min_size(vec2(64.0, 30.0));
-                if ui.add(button).clicked() {
-                    acts.push(Act::Tab(tab.to_string()));
-                }
-            }
-        });
     });
     acts
 }

@@ -295,7 +295,9 @@ fn android_main(app: AndroidApp) {
         "NoteCraft",
         options,
         Box::new(move |_cc| {
+            let compact = session.settings.get("layout").as_deref() != Some("classic");
             let mut app = NoteCraftApp::new(session).with_clipboard(clipboard);
+            app.set_compact_ui(compact);
             // The system draws the status bar; the desktop app's own title band has no place here.
             app.set_frameless(false);
             // A finger scrolls and taps; only the stylus draws, and it draws by default.
