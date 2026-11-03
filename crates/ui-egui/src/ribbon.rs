@@ -552,6 +552,28 @@ fn quick_tools(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
         acts.push(Act::InkPointer(Pointer::Erase));
     }
     divider(ui, t);
+    pen_chips(ui, view, t, acts);
+    divider(ui, t);
+    // The paper under the page: none, lines or squares, and a page colour. A grid is
+    // what makes handwriting and diagrams come out straight, so it is one press away.
+    let on = view.rules != RuleLines::None;
+    let paper = chip(ui, "Paper", "Lines, squares or no paper behind the page", on, t, |p, r| {
+        let g = egui::Rect::from_center_size(r.center(), vec2(22.0, 22.0));
+        let line = egui::Stroke::new(1.3, t.text);
+        p.rect_stroke(g, 2.0, line, egui::StrokeKind::Inside);
+        for k in 1..3 {
+            let f = k as f32 / 3.0;
+            p.line_segment([egui::pos2(g.min.x + g.width() * f, g.min.y), egui::pos2(g.min.x + g.width() * f, g.max.y)], line);
+            p.line_segment([egui::pos2(g.min.x, g.min.y + g.height() * f), egui::pos2(g.max.x, g.min.y + g.height() * f)], line);
+        }
+    });
+    paper_popup(ui, &paper, egui::Id::new("quick-bar-paper"), view, t, acts);
+    ui.add_space(6.0);
+}
+
+/// The pens on the rack as swatches of their colour, then how thick the one in hand writes and what
+/// colour it is.
+fn pen_chips(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
     for (i, nib) in view.rack.iter().enumerate() {
         let chosen = view.pointer == Pointer::Draw && view.nib == i;
         let label = format!("{} {}", nib.tool.label(), swatch_name(nib.colour));
@@ -636,22 +658,6 @@ fn quick_tools(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
         }
         done
     });
-    divider(ui, t);
-    // The paper under the page: none, lines or squares, and a page colour. A grid is
-    // what makes handwriting and diagrams come out straight, so it is one press away.
-    let on = view.rules != RuleLines::None;
-    let paper = chip(ui, "Paper", "Lines, squares or no paper behind the page", on, t, |p, r| {
-        let g = egui::Rect::from_center_size(r.center(), vec2(22.0, 22.0));
-        let line = egui::Stroke::new(1.3, t.text);
-        p.rect_stroke(g, 2.0, line, egui::StrokeKind::Inside);
-        for k in 1..3 {
-            let f = k as f32 / 3.0;
-            p.line_segment([egui::pos2(g.min.x + g.width() * f, g.min.y), egui::pos2(g.min.x + g.width() * f, g.max.y)], line);
-            p.line_segment([egui::pos2(g.min.x, g.min.y + g.height() * f), egui::pos2(g.max.x, g.min.y + g.height() * f)], line);
-        }
-    });
-    paper_popup(ui, &paper, egui::Id::new("quick-bar-paper"), view, t, acts);
-    ui.add_space(6.0);
 }
 
 /// A pen on the quick bar: a disc of its colour, or a broad bar for a highlighter.
@@ -762,14 +768,13 @@ pub fn tab_strip(ui: &mut Ui, tab: &str, source: bool, in_table: bool, t: &Token
             let (rect, resp) = ui.allocate_exact_size(vec2(galley.size().x + 26.0, TAB_STRIP_H), Sense::click());
             let painter = ui.painter_at(rect);
             if selected {
-                // Raised: the tab and the ribbon are one surface, so there is no line between.
-                let top = egui::CornerRadius { nw: 4, ne: 4, sw: 0, se: 0 };
-                painter.rect_filled(egui::Rect::from_min_max(egui::pos2(rect.min.x, rect.min.y + 3.0), rect.max), top, t.panel);
+                // A line under the chosen tab, in the accent.
+                painter.rect_filled(egui::Rect::from_min_max(egui::pos2(rect.min.x + 6.0, rect.max.y - 2.0), egui::pos2(rect.max.x - 6.0, rect.max.y)), 1.0, t.accent);
             } else if resp.hovered() {
-                painter.rect_filled(rect.shrink2(vec2(1.0, 3.0)), 3.0, t.band_hover);
+                painter.rect_filled(rect.shrink2(vec2(1.0, 3.0)), 3.0, t.row_hover);
             }
-            let colour = if selected { t.accent } else { t.band_text };
-            painter.text(rect.center() + vec2(0.0, 1.0), Align2::CENTER_CENTER, name, font, colour);
+            let colour = if selected { t.text } else { t.muted };
+            painter.text(rect.center(), Align2::CENTER_CENTER, name, font, colour);
             let enabled = ui.is_enabled();
             let label = name.to_string();
             resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, selected, label.clone()));
@@ -778,6 +783,8 @@ pub fn tab_strip(ui: &mut Ui, tab: &str, source: bool, in_table: bool, t: &Token
             }
         }
     });
+    let line = ui.max_rect().left_top().x..=ui.max_rect().right_top().x;
+    ui.painter().hline(line, ui.cursor().min.y, egui::Stroke::new(1.0, t.faint));
 }
 
 /// The name of the first tab, which opens the File screen instead of a ribbon.
@@ -2810,12 +2817,13 @@ fn view_tab(ui: &mut Ui, source: bool, view: &View<'_>, t: &Tokens, acts: &mut V
     // The groups OneNote's View tab has, in its order: Views, Layout, Tools, Page Setup,
     // Zoom, Window. What NoteCraft does not have says so rather than being left out.
     group(ui, "Views", t, |ui| {
-        if big(
+        if big_on(
             ui,
             Icon::Page,
             "Normal
 view",
             "The page beside the notebooks",
+            !view.full_page,
             t,
         )
         .clicked()
@@ -2832,12 +2840,12 @@ view",
         });
     });
     group(ui, "Layout", t, |ui| {
+        // What OneNote calls the navigation pane: notebooks and sections in one
+        // column, the pages of the chosen section in the next.
+        if big_on(ui, Icon::Bars, "Split", "Notebooks and sections in one column, pages in the next", view.split_panes, t).clicked() {
+            acts.push(Act::TogglePanes);
+        }
         rows(ui, |ui| {
-            // What OneNote calls the navigation pane: notebooks and sections in one
-            // column, the pages of the chosen section in the next.
-            if small(ui, None, "Split", "Separate pages", "Notebooks and sections in one column, pages in the next", view.split_panes, t).clicked() {
-                acts.push(Act::TogglePanes);
-            }
             not_built(ui, "Tabs layout", t);
         });
     });

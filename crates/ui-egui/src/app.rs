@@ -1936,9 +1936,9 @@ impl NoteCraftApp {
         let (tab, source, in_table) = (self.ribbon_tab.clone(), self.show_source, self.caret_in_table());
         let title = self.editor.as_ref().map(|e| e.title.trim().to_owned()).filter(|s| !s.is_empty());
         let mut acts = Vec::new();
-        // The compact layout: a header in the panel's own colours, and no row of tabs (the toolbar
-        // and the header's menu reach every tab).
-        let (fill, line) = if self.compact_ui { (t.panel, true) } else { (t.band, false) };
+        // The header is in the panel's own colours. The compact layout has no row of tabs (the toolbar
+        // and the header's menu reach every tab); the classic one has them, as plain words.
+        let (fill, line) = (t.panel, self.compact_ui);
         egui::Panel::top("band").frame(egui::Frame::new().fill(fill)).show_separator_line(line).show(ui, |ui| {
             ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
             self.title_row(ui, title.as_deref());
@@ -1959,7 +1959,7 @@ impl NoteCraftApp {
     /// The band's first row. Anything on it that is not a control moves the window.
     fn title_row(&mut self, ui: &mut Ui, title: Option<&str>) {
         let h_row: f32 = if self.compact_ui { 48.0 } else { 30.0 };
-        let on = if self.compact_ui { self.tokens } else { self.tokens.on_band() };
+        let on = self.tokens;
         let ctx = ui.ctx().clone();
         let row = egui::Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), h_row));
         // Added first, so the controls drawn over it win the pointer: only bare band is a handle.
@@ -2165,6 +2165,7 @@ impl NoteCraftApp {
                 &mut self.sync,
                 self.show_perf,
                 self.fps_limit,
+                self.compact_ui,
                 &tokens,
             );
         });
@@ -2232,6 +2233,10 @@ impl NoteCraftApp {
                         self.sync.failed = true;
                     }
                 },
+                backstage::Act::SetCompactUi(on) => {
+                    self.compact_ui = on;
+                    let _ = self.session.settings.set("layout", if on { "compact" } else { "classic" });
+                }
                 backstage::Act::SetFpsLimit(n) => {
                     self.fps_limit = n;
                     let _ = self.session.settings.set("fps_limit", &n.to_string());

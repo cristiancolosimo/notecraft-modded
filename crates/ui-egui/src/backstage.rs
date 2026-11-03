@@ -47,6 +47,8 @@ pub enum Act {
     SetShowPerf(bool),
     /// Cap the frame rate (0 for no cap).
     SetFpsLimit(u32),
+    /// The compact toolbar (true) or the tabbed ribbon (false).
+    SetCompactUi(bool),
     /// Write this notebook to a ZIP.
     ExportNotebook(std::path::PathBuf),
     ResetPreferences,
@@ -85,6 +87,7 @@ pub fn show(
     sync: &mut crate::syncing::Syncing,
     show_perf: bool,
     fps_limit: u32,
+    compact_ui: bool,
     t: &Tokens,
 ) -> Vec<Act> {
     let mut acts = Vec::new();
@@ -99,7 +102,7 @@ pub fn show(
                     "Open" => open_page(ui, recent, notebooks_folder, show_path, t, &mut acts),
                     "Sync" => sync_page(ui, sync, t, &mut acts),
                     "Export" => export_page(ui, notebooks, show_path, t, &mut acts),
-                    "Options" => options_page(ui, telemetry_root, telemetry_level, session_id, show_perf, fps_limit, t, &mut acts),
+                    "Options" => options_page(ui, telemetry_root, telemetry_level, session_id, show_perf, fps_limit, compact_ui, t, &mut acts),
                     _ => info_page(ui, notebooks, notebooks_folder, show_path, t, &mut acts),
                 }
             });
@@ -476,6 +479,7 @@ fn options_page(
     session_id: Option<&str>,
     show_perf: bool,
     fps_limit: u32,
+    compact_ui: bool,
     t: &Tokens,
     acts: &mut Vec<Act>,
 ) {
@@ -516,6 +520,18 @@ fn options_page(
     });
     ui.add_space(12.0);
     ui.label(egui::RichText::new("Export creates a user-selected ZIP, then removes the exported session folder.").size(11.5).color(t.muted));
+    ui.add_space(18.0);
+    ui.separator();
+    ui.label(egui::RichText::new("Toolbar layout").strong().size(15.0).color(t.strong));
+    ui.label(egui::RichText::new("Compact: one row of tools, the rest in the header's menu. Ribbon: the tabs File, Home, Insert, Draw, History and View.").size(11.5).color(t.muted));
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Layout:").strong());
+        for (label, compact) in [("Compact", true), ("Ribbon", false)] {
+            if ui.selectable_label(compact_ui == compact, label).clicked() && compact_ui != compact {
+                acts.push(Act::SetCompactUi(compact));
+            }
+        }
+    });
     ui.add_space(18.0);
     ui.separator();
     ui.label(egui::RichText::new("Frame rate").strong().size(15.0).color(t.strong));
