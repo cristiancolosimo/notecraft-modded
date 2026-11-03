@@ -126,6 +126,8 @@ pub enum Act {
     InkExportPlain,
     /// The user picked another tab.
     Tab(String),
+    /// Fold the ribbon away to its tab names, or unfold it.
+    ToggleRibbon,
 }
 
 /// What the pointer does on a page. The Draw tab sets it; everywhere else it is `Write`.
@@ -755,7 +757,7 @@ pub fn tabs(source: bool, in_table: bool) -> Vec<&'static str> {
 /// Office. The chosen tab is a raised tab in the ribbon's own colour that runs down into the
 /// ribbon below it; the others are white writing on the band, lit when the pointer is over
 /// one.
-pub fn tab_strip(ui: &mut Ui, tab: &str, source: bool, in_table: bool, t: &Tokens, acts: &mut Vec<Act>) {
+pub fn tab_strip(ui: &mut Ui, tab: &str, source: bool, in_table: bool, collapsed: bool, t: &Tokens, acts: &mut Vec<Act>) {
     let chosen = resolve_tab(tab, source, in_table);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -782,6 +784,24 @@ pub fn tab_strip(ui: &mut Ui, tab: &str, source: bool, in_table: bool, t: &Token
                 acts.push(if name == FILE_TAB { Act::File } else { Act::Tab(name.to_string()) });
             }
         }
+        // At the far end, the arrow that folds the ribbon away to its tabs, and brings it back.
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let (rect, resp) = ui.allocate_exact_size(vec2(32.0, TAB_STRIP_H), Sense::click());
+            let painter = ui.painter_at(rect);
+            if resp.hovered() {
+                painter.rect_filled(rect.shrink2(vec2(2.0, 3.0)), 4.0, t.row_hover);
+            }
+            let c = rect.center() + vec2(0.0, 1.0);
+            let d = if collapsed { 2.5 } else { -2.5 };
+            let stroke = egui::Stroke::new(1.5, t.text);
+            painter.line_segment([egui::pos2(c.x - 5.0, c.y - d), egui::pos2(c.x, c.y + d)], stroke);
+            painter.line_segment([egui::pos2(c.x, c.y + d), egui::pos2(c.x + 5.0, c.y - d)], stroke);
+            let (enabled, name) = (ui.is_enabled(), if collapsed { "Expand the ribbon" } else { "Collapse the ribbon" });
+            resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+            if resp.on_hover_text(name).clicked() {
+                acts.push(Act::ToggleRibbon);
+            }
+        });
     });
     let line = ui.max_rect().left_top().x..=ui.max_rect().right_top().x;
     ui.painter().hline(line, ui.cursor().min.y, egui::Stroke::new(1.0, t.faint));
@@ -996,6 +1016,9 @@ fn rows(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     });
 }
 
+/// The styles the Home tab shows in one line.
+const STYLES_AT_HAND: [(&str, &str); 4] = [("Heading 1", "h1"), ("Heading 2", "h2"), ("Normal", "p"), ("Code", "codeblock")];
+
 /// The styles OneNote lists in its Styles gallery, and what each one is here.
 pub const STYLES: [(&str, &str); 12] = [
     ("Heading 1", "h1"),
@@ -1141,15 +1164,14 @@ fn home_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
     });
     group(ui, "Styles", t, |ui| {
         gallery(ui, "styles", view.style, t, acts, |ui, acts| {
-            // The box shows two rows, as OneNote's does: the first two, or, when the caret is in
-            // a later style, that one and the next (the last two for the last), so the current
-            // style is in sight. Ordinary text keeps the headings in the box.
-            let first = STYLES.iter().position(|(_, k)| *k == view.style && *k != "p").filter(|i| *i >= 2).map_or(0, |i| i.min(STYLES.len() - 2));
-            for (label, kind) in STYLES.iter().skip(first).take(2) {
-                if style_row(ui, label, kind, *kind == view.style, t).clicked() {
-                    acts.push(Act::Block(leak(kind)));
+            // The box is one line of the styles a writer reaches for; the arrow opens the whole list.
+            ui.horizontal_centered(|ui| {
+                for (label, kind) in STYLES_AT_HAND {
+                    if style_chip(ui, label, kind, kind == view.style, t).clicked() {
+                        acts.push(Act::Block(leak(kind)));
+                    }
                 }
-            }
+            });
         });
     });
     group(ui, "Tags", t, |ui| {
@@ -1295,10 +1317,11 @@ fn gallery(ui: &mut Ui, which: &'static str, current: &str, t: &Tokens, acts: &m
         .corner_radius(3.0)
         .inner_margin(4.0)
         .show(ui, |ui| {
-            ui.set_min_size(vec2(130.0, height));
-            ui.set_max_width(190.0);
+            let wide = which == "styles";
+            ui.set_min_size(vec2(if wide { 250.0 } else { 130.0 }, height));
+            ui.set_max_width(if wide { 270.0 } else { 190.0 });
             ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
+                ui.spacing_mut().item_spacing = vec2(if wide { 0.0 } else { 2.0 }, 2.0);
                 rows_in_box(ui, acts);
             });
         })
@@ -1553,7 +1576,8 @@ fn run_direction_menu(ui: &mut Ui, t: &Tokens, acts: &mut Vec<Act>) {
 }
 
 /// One line of the Styles gallery, drawn the way the style looks.
-fn style_row(ui: &mut Ui, label: &str, kind: &str, current: bool, t: &Tokens) -> egui::Response {
+/// How a style is written in the gallery: its size, colour and slant, and in code the monospace.
+fn style_text(label: &str, kind: &str, t: &Tokens) -> (egui::RichText, egui::Color32) {
     let (size, color, italics) = match kind {
         "h1" | "title" => (17.0, t.accent, false),
         "h2" => (15.0, t.accent, false),
@@ -1570,6 +1594,34 @@ fn style_row(ui: &mut Ui, label: &str, kind: &str, current: bool, t: &Tokens) ->
     if matches!(kind, "codeblock" | "codenumbers") {
         text = text.monospace();
     }
+    (text, color)
+}
+
+/// One style in the Home tab's line: its name in its own look, boxed when the caret is in it.
+fn style_chip(ui: &mut Ui, label: &str, kind: &str, current: bool, t: &Tokens) -> egui::Response {
+    let (text, color) = style_text(label, kind, t);
+    // Smaller than in the gallery, so five fit in a line.
+    let galley = egui::WidgetText::from(text.size(12.5)).into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Button);
+    let (rect, resp) = ui.allocate_exact_size(vec2(galley.size().x + 10.0, 30.0), Sense::click());
+    let code = kind == "codeblock";
+    if current {
+        ui.painter().rect_filled(rect, 4.0, t.row_selected);
+    } else if resp.hovered() {
+        ui.painter().rect_filled(rect, 4.0, t.row_hover);
+    }
+    if code {
+        ui.painter().rect_filled(rect.shrink2(vec2(2.0, 5.0)), 3.0, t.faint);
+    }
+    let at = egui::pos2(rect.left() + 5.0, rect.center().y - galley.size().y / 2.0);
+    ui.painter().galley(at, galley, color);
+    let enabled = ui.is_enabled();
+    let name = label.to_string();
+    resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, current, name.clone()));
+    resp
+}
+
+fn style_row(ui: &mut Ui, label: &str, kind: &str, current: bool, t: &Tokens) -> egui::Response {
+    let (text, color) = style_text(label, kind, t);
     let galley = egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Button);
     let width = ui.available_width().max(130.0).min(galley.size().x + 16.0).max(130.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 22.0), Sense::click());
@@ -1977,6 +2029,18 @@ fn paper_popup(ui: &mut Ui, anchor: &egui::Response, open_id: egui::Id, view: &V
 fn sensitivity(ui: &mut Ui, now: u8, pressure_available: bool, t: &Tokens, acts: &mut Vec<Act>) {
     rows(ui, |ui| {
         ui.add_space(4.0);
+        // Pressure on or off: off is a sensitivity of nothing; on gives back the one it had, or the middle.
+        let kept = egui::Id::new("ribbon-kept-sensitivity");
+        if now > 0 {
+            ui.data_mut(|d| d.insert_temp(kept, now));
+        }
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Pressure").size(12.0).color(t.text));
+            if switch(ui, now > 0, pressure_available, "Pressure", t).clicked() {
+                let back = ui.data(|d| d.get_temp::<u8>(kept)).unwrap_or(50);
+                acts.push(Act::InkSensitivity(if now > 0 { 0 } else { back }));
+            }
+        });
         let label = if pressure_available { "Sensitivity" } else { "Pressure off" };
         ui.label(egui::RichText::new(label).size(10.0).color(if pressure_available { t.muted } else { t.warn }));
         let (rect, resp) = ui.allocate_exact_size(vec2(96.0, 20.0), Sense::click_and_drag());
@@ -2024,6 +2088,21 @@ fn sensitivity(ui: &mut Ui, now: u8, pressure_available: bool, t: &Tokens, acts:
             }),
         );
     });
+}
+
+/// An on/off switch: a pill with a knob that sits at the right when on.
+fn switch(ui: &mut Ui, on: bool, enabled: bool, name: &str, t: &Tokens) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(38.0, 22.0), if enabled { Sense::click() } else { Sense::hover() });
+    let painter = ui.painter_at(rect);
+    let fill = if on && enabled { t.accent } else { crate::theme::mix(t.panel, t.text, 0.16) };
+    painter.rect_filled(rect, 11.0, fill);
+    painter.rect_stroke(rect, 11.0, egui::Stroke::new(1.0, crate::theme::mix(t.panel, t.text, 0.3)), egui::StrokeKind::Inside);
+    let x = if on { rect.max.x - 11.0 } else { rect.min.x + 11.0 };
+    painter.circle_filled(egui::pos2(x, rect.center().y), 8.0, if on && enabled { t.panel } else { t.muted });
+    let ui_enabled = ui.is_enabled() && enabled;
+    let name = name.to_string();
+    resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui_enabled, on, name.clone()));
+    resp
 }
 
 /// OneNote's Add button: a new tool of whatever kind, put on the end of the rack.
@@ -2108,35 +2187,30 @@ fn away(ui: &Ui, area: &egui::Response, button: &egui::Response) -> bool {
 /// them apart: a cone for a pen, bare wood and lead for a pencil, a long slit nib for a
 /// fountain pen, a soft bulb for a brush, a slanted chisel for a highlighter.
 fn pen_on_rack(ui: &mut Ui, i: usize, nib: Nib, chosen: bool, rack_len: usize, t: &Tokens, acts: &mut Vec<Act>) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(vec2(27.0, GROUP_H - 20.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(40.0, GROUP_H - 20.0), Sense::click());
     let enabled = ui.is_enabled();
     let name = format!("{} {}", nib.tool.label(), swatch_name(nib.colour));
     let label = name.clone();
     resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, chosen, label.clone()));
     let painter = ui.painter_at(rect);
+    // A swatch of the tool's colour: a disc, or a broad bar for a highlighter. The one in hand is
+    // ringed, and pressing it again opens its editor; a right click opens the same editor and the
+    // rest of the rack's own menu.
+    let tile = egui::Rect::from_center_size(rect.center(), vec2(38.0, 38.0));
     if chosen {
-        painter.rect_filled(rect, 4.0, crate::theme::mix(t.panel, t.accent, 0.10));
-        painter.rect_stroke(rect, 4.0, egui::Stroke::new(1.0, t.accent), egui::StrokeKind::Inside);
+        painter.rect_filled(tile, 8.0, crate::theme::mix(t.panel, t.accent, 0.18));
+        painter.rect_stroke(tile, 8.0, egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
     } else if resp.hovered() {
-        painter.rect_filled(rect, 4.0, t.row_hover);
+        painter.rect_filled(tile, 8.0, t.row_hover);
     }
-    // The one in use sinks into the rack, the way a pen lifted out of a tray sits lower
-    // than its neighbours, and it eases down rather than jumping.
-    let drop = ui.ctx().animate_bool_with_time(resp.id.with("picked"), chosen, 0.12) * DROP;
-    paint_tool(&painter, rect, nib.tool, nib.colour, drop);
+    let colour = egui::Color32::from_rgb(nib.colour.0, nib.colour.1, nib.colour.2);
+    paint_swatch(&painter, tile, colour, nib.tool == Tool::Highlighter, nib.width(), t);
 
-    // The chevron on the tool in hand opens its editor, as OneNote's does; a right click
-    // opens the same editor and the rest of the rack's own menu.
     let mut picked_up = resp.clicked();
-    let chev = egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.max.y - 5.0), vec2(14.0, 11.0));
     let mut modify = false;
-    if chosen {
-        let hit = ui.interact(chev, resp.id.with("chevron"), Sense::click());
-        chevron(&painter, chev.center(), if hit.hovered() { t.accent } else { t.muted });
-        if hit.clicked() {
-            modify = true;
-            picked_up = false;
-        }
+    if resp.clicked() && chosen {
+        modify = true;
+        picked_up = false;
     }
     // The menu hangs off the pen's own response. A second interact over the same
     // rectangle looked harmless and was not: later widgets win in egui, so it swallowed

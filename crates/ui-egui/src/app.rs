@@ -592,6 +592,8 @@ pub struct NoteCraftApp {
     code: crate::codeview::State,
     /// Which ribbon tab is open.
     ribbon_tab: String,
+    /// The ribbon is folded away to its tab names.
+    ribbon_collapsed: bool,
     compact_ui: bool,
     /// What the pen is reporting, where the platform reports anything.
     stylus: crate::stylus::Stylus,
@@ -736,6 +738,7 @@ impl NoteCraftApp {
             show_source,
             code: crate::codeview::State::default(),
             ribbon_tab: "Home".to_string(),
+            ribbon_collapsed: false,
             compact_ui: false,
             stylus: crate::stylus::Stylus::default(),
             sync: crate::syncing::Syncing::load(&settings_for_sync),
@@ -1943,7 +1946,7 @@ impl NoteCraftApp {
             ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
             self.title_row(ui, title.as_deref());
             if with_tabs && !self.compact_ui {
-                ribbon::tab_strip(ui, &tab, source, in_table, &t, &mut acts);
+                ribbon::tab_strip(ui, &tab, source, in_table, self.ribbon_collapsed, &t, &mut acts);
             }
         });
         for a in acts {
@@ -2715,6 +2718,9 @@ impl NoteCraftApp {
             }
             return;
         }
+        if self.ribbon_collapsed {
+            return;
+        }
         egui::Panel::top("ribbon")
             .exact_size(ribbon::GROUP_H + 8.0)
             .frame(egui::Frame::new().fill(tokens.panel).inner_margin(egui::Margin::symmetric(4, 0)))
@@ -2849,8 +2855,11 @@ impl NoteCraftApp {
             }
             ribbon::Act::Symbols => self.dialog = Some(Dialog::Symbols),
             ribbon::Act::Equation(tex) => self.insert_in_page(&format!("${tex}$")),
+            ribbon::Act::ToggleRibbon => self.ribbon_collapsed = !self.ribbon_collapsed,
             ribbon::Act::Tab(name) => {
                 self.ribbon_tab = name;
+                // Picking a tab unfolds the ribbon.
+                self.ribbon_collapsed = false;
                 // A tab is a way back to the ribbon.
                 self.full_page = false;
             }
