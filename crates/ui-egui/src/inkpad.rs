@@ -788,6 +788,23 @@ pub fn show(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pen: Pen, pressure: f3
     // Not egui's drag, which only begins once the pointer has travelled far enough: a pen
     // put down and lifted in one place is a dot, and a dot is ink.
     // `ink_allowed` is false for a finger when only the pen may write.
+    // A box's cross under the pointer is the box's, not the ink's: pressing it deletes the box, whatever tool
+    // is in hand, and the pen does not draw there.
+    let cross = ui.ctx().pointer_interact_pos().and_then(|p| {
+        ui.ctx()
+            .data(|d| d.get_temp::<Vec<(usize, egui::Rect)>>(crate::containers::crosses_id()))
+            .unwrap_or_default()
+            .into_iter()
+            .find(|(_, r)| r.contains(p))
+    });
+    if let Some((i, _)) = cross {
+        if resp.clicked() {
+            ui.ctx().data_mut(|d| d.insert_temp(crate::containers::cross_hit_id(), i));
+            ui.ctx().request_repaint();
+        }
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        return false;
+    }
     let down = ink_allowed && resp.is_pointer_button_down_on();
     // A finger on the ink layer scrolls the page, as it would anywhere else.
     // It keeps coasting after the finger lifts, and a touch of the glass catches it.

@@ -179,6 +179,12 @@ pub fn show(
     let mut menu_at = ui.data(|d| d.get_temp::<Pos2>(menu_id()));
     let mut sel_frame: Option<Rect> = None;
     let mut delete_at: Option<usize> = None;
+    // A press the ink layer saw on a box's cross (it covers the page while a pen, the rubber or Select is in
+    // hand, so the cross cannot take the press itself) is the cross pressed.
+    if let Some(i) = ui.ctx().data_mut(|d| d.remove_temp::<usize>(cross_hit_id())).filter(|i| *i < boxes.len()) {
+        delete_at = Some(i);
+    }
+    let mut crosses: Vec<(usize, Rect)> = Vec::new();
     let mut delete_object: Option<usize> = None;
     // An empty box that was clicked: it has no words to answer a click, so the click starts some.
     let mut start_in: Option<usize> = None;
@@ -588,10 +594,11 @@ pub fn show(
             response.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
             (cross, response)
         });
-        if let Some((_, response)) = &gone
-            && response.clicked()
-        {
-            delete_at = Some(i);
+        if let Some((cross, response)) = &gone {
+            crosses.push((i, *cross));
+            if response.clicked() {
+                delete_at = Some(i);
+            }
         }
         if hovered || ui.rect_contains_pointer(bar) || editing || busy || is_sel || (touch && !image_object) {
             log::debug!("render: i={} image_object={} hovered={} editing={} busy={} is_sel={}", i, image_object, hovered, editing, busy, is_sel);
@@ -916,7 +923,18 @@ pub fn show(
     if below.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
     }
+    ui.ctx().data_mut(|d| d.insert_temp(crosses_id(), crosses));
     out
+}
+
+/// Where the boxes' crosses are this frame, for the ink layer, which lies over them while a pen is in hand.
+pub fn crosses_id() -> Id {
+    Id::new("box-crosses")
+}
+
+/// The box whose cross the ink layer saw pressed.
+pub fn cross_hit_id() -> Id {
+    Id::new("box-cross-hit")
 }
 
 fn block_has_image(block: &Block) -> bool {

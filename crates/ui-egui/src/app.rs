@@ -647,6 +647,8 @@ pub struct NoteCraftApp {
     zoom_percent: u32,
     /// The zoom the page was last drawn at, to notice a change and keep the point under the pointer still.
     zoom_seen: u32,
+    /// The zoom with its fraction, while a pinch is moving it.
+    zoom_exact: f32,
     /// Recalculate the page zoom from the reading area's width on the next frame.
     fit_page_width: bool,
     /// The theme chooser is open as a window (the ribbon's Theme button).
@@ -770,6 +772,7 @@ impl NoteCraftApp {
             hide_title: session_hide_title,
             zoom_percent: 100,
             zoom_seen: 100,
+            zoom_exact: 100.0,
             fit_page_width: false,
             theme_window: false,
             pending_copy: None,
@@ -4424,11 +4427,20 @@ impl NoteCraftApp {
             }
         }
         let editor_rect = ui.max_rect();
-        let wheel_zoom = ui.input(|i| i.pointer.hover_pos().filter(|p| editor_rect.contains(*p)).map_or(1.0, |_| i.zoom_delta()));
+        // A pinch has no pointer hovering, so its own centre counts as being over the page.
+        let wheel_zoom = ui.input(|i| {
+            let over =
+                i.multi_touch().is_some_and(|m| editor_rect.contains(m.center_pos)) || i.pointer.hover_pos().is_some_and(|p| editor_rect.contains(p));
+            if over { i.zoom_delta() } else { 1.0 }
+        });
         if wheel_zoom.is_finite() && (wheel_zoom - 1.0).abs() > 0.001 {
+            // The percent is a whole number, but a pinch moves it a fraction a frame: the fraction is kept,
+            // or a slow pinch would round away to nothing.
             #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             {
-                self.zoom_percent = (self.zoom_percent as f32 * wheel_zoom).round().clamp(50.0, 250.0) as u32;
+                let kept = if self.zoom_exact.round() as u32 == self.zoom_percent { self.zoom_exact } else { self.zoom_percent as f32 };
+                self.zoom_exact = (kept * wheel_zoom).clamp(50.0, 250.0);
+                self.zoom_percent = self.zoom_exact.round() as u32;
             }
             self.fit_page_width = false;
         }
@@ -4447,17 +4459,22 @@ impl NoteCraftApp {
             #[allow(clippy::cast_precision_loss)]
             let old = (self.zoom_seen as f32 / 100.0).max(0.01);
             self.zoom_seen = self.zoom_percent;
-            let focus = ui
-                .input(|i| i.multi_touch().map(|m| m.center_pos).or(i.pointer.hover_pos()))
-                .filter(|p| editor_rect.contains(*p))
-                .unwrap_or(editor_rect.center());
-            if let Some(offset) = ui.ctx().data(|d| d.get_temp::<egui::Vec2>(Id::new("preview-offset"))) {
-                let (f, width) = (focus - editor_rect.min, ui.available_width());
+            if let (Some(offset), Some(view)) = (
+                ui.ctx().data(|d| d.get_temp::<egui::Vec2>(Id::new("preview-offset"))),
+                ui.ctx().data(|d| d.get_temp::<egui::Rect>(Id::new("preview-view"))),
+            ) {
+                let focus = ui
+                    .input(|i| i.multi_touch().map(|m| m.center_pos).or(i.pointer.hover_pos()))
+                    .filter(|p| view.contains(*p))
+                    .unwrap_or(view.center());
+                let (f, width) = (focus - view.min, view.width());
                 let margin = |z: f32| ((width - 780.0 * z) / 2.0).max(8.0);
                 let across = (offset.x + f.x - margin(old)) / old;
                 let x = (margin(zoom_scale) + zoom_scale * across - f.x).max(0.0);
                 let y = ((offset.y + f.y) * (zoom_scale / old) - f.y).max(0.0);
-                ui.ctx().data_mut(|d| d.insert_temp(Id::new("preview-set-offset"), egui::vec2(x, y)));
+                // For a few frames: the page is larger now, and the scroll area only lets the offset reach as far
+                // as the page it has measured, which is the old one for the first of them.
+                ui.ctx().data_mut(|d| d.insert_temp(Id::new("preview-set-offset"), (egui::vec2(x, y), 4_u8)));
             }
         }
         let root = self.session.root().to_path_buf();
@@ -4578,8 +4595,12 @@ impl NoteCraftApp {
                 let view = vec2(ui.available_width(), height);
                 let mut scroller = egui::ScrollArea::both().id_salt("preview").scroll_source(scroll).max_height(height);
                 // A zoom this frame asked for the page to stay where it was under the pointer.
-                if let Some(offset) = ui.ctx().data_mut(|d| d.remove_temp::<egui::Vec2>(Id::new("preview-set-offset"))) {
+                if let Some((offset, frames)) = ui.ctx().data_mut(|d| d.remove_temp::<(egui::Vec2, u8)>(Id::new("preview-set-offset"))) {
                     scroller = scroller.scroll_offset(offset);
+                    if frames > 1 {
+                        ui.ctx().data_mut(|d| d.insert_temp(Id::new("preview-set-offset"), (offset, frames - 1)));
+                        ui.ctx().request_repaint();
+                    }
                 }
                 let shown = scroller.show(ui, |ui| {
                     // Lines or squares behind the page, the way OneNote rules one. The
@@ -4738,7 +4759,10 @@ impl NoteCraftApp {
                         }
                     });
                 });
-                ui.ctx().data_mut(|d| d.insert_temp(Id::new("preview-offset"), shown.state.offset));
+                ui.ctx().data_mut(|d| {
+                    d.insert_temp(Id::new("preview-offset"), shown.state.offset);
+                    d.insert_temp(Id::new("preview-view"), shown.inner_rect);
+                });
             };
             if show_source {
                 // The code view: the page's files on the left, the one picked on the
