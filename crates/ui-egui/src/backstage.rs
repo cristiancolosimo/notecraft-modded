@@ -91,19 +91,26 @@ pub fn show(
     t: &Tokens,
 ) -> Vec<Act> {
     let mut acts = Vec::new();
-    egui::Frame::NONE.fill(t.panel).show(ui, |ui| {
+    ui.painter().rect_filled(ui.max_rect(), 0.0, t.editor);
+    egui::Frame::NONE.show(ui, |ui| {
         ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
             side_bar(ui, page, t, &mut acts);
-            ui.add_space(14.0);
+            ui.add_space(48.0);
             ui.vertical(|ui| {
-                ui.add_space(10.0);
+                // The page has the same room to the right as to the left of it.
+                ui.set_max_width((ui.available_width() - 48.0).max(200.0));
+                if !matches!(page, "New" | "Open" | "Sync" | "Export" | "Options") {
+                    info_page(ui, notebooks, notebooks_folder, show_path, t, &mut acts);
+                    return;
+                }
+                ui.add_space(18.0);
                 match page {
                     "New" => new_page(ui, notebooks_folder, t, &mut acts),
                     "Open" => open_page(ui, recent, notebooks_folder, show_path, t, &mut acts),
                     "Sync" => sync_page(ui, sync, t, &mut acts),
                     "Export" => export_page(ui, notebooks, show_path, t, &mut acts),
-                    "Options" => options_page(ui, telemetry_root, telemetry_level, session_id, show_perf, fps_limit, compact_ui, t, &mut acts),
-                    _ => info_page(ui, notebooks, notebooks_folder, show_path, t, &mut acts),
+                    _ => options_page(ui, telemetry_root, telemetry_level, session_id, show_perf, fps_limit, compact_ui, t, &mut acts),
                 }
             });
         });
@@ -111,66 +118,72 @@ pub fn show(
     acts
 }
 
+/// The navigation down the left of the File screen, to a drawn design: 264 wide with a line on its right,
+/// rows 48 high 50 apart, each an icon of 20 and a label of 15 on a pill that is lit for the page shown.
 fn side_bar(ui: &mut Ui, page: &str, t: &Tokens, acts: &mut Vec<Act>) {
-    ui.vertical(|ui| {
-        ui.set_width(170.0);
-        ui.add_space(8.0);
-        // The arrow back to the notebook, as in Office.
-        let (rect, back) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::click());
-        let painter = ui.painter_at(rect);
-        if back.hovered() {
-            painter.circle_filled(rect.center(), 15.0, t.row_hover);
+    use crate::svgicon::{Prim, paint};
+    use crate::viewtab::text_on_baseline;
+    const BACK: [Prim; 1] = [Prim::Path("M19 12H5M11 6l-6 6 6 6")];
+    const INFO: [Prim; 2] = [Prim::Circle(12.0, 12.0, 9.0), Prim::Path("M12 11v6M12 7.5v.01")];
+    const NEW: [Prim; 1] = [Prim::Path("M12 5v14M5 12h14")];
+    const OPEN: [Prim; 1] = [Prim::Path("M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z")];
+    const SYNC: [Prim; 1] = [Prim::Path("M20 11a8 8 0 00-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0014.3 4.9L20 16M20 20v-4h-4")];
+    const EXPORT: [Prim; 1] = [Prim::Path("M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 002 2h12a2 2 0 002-2v-4")];
+    const GEAR: [Prim; 2] = [
+        Prim::Circle(12.0, 12.0, 3.0),
+        Prim::Path(
+            "M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z",
+        ),
+    ];
+    let height = ui.available_height().max(420.0);
+    let (rect, _) = ui.allocate_exact_size(vec2(264.0, height), Sense::hover());
+    let painter = ui.painter().clone();
+    painter.rect_filled(rect, 0.0, t.panel);
+    painter.vline(rect.max.x - 0.5, rect.y_range(), egui::Stroke::new(1.0, t.faint));
+    let row = |ui: &mut Ui, y: f32, icon: &[Prim], label: &str, name: &str, lit: bool, muted: bool, tip: &str| -> egui::Response {
+        let pill = egui::Rect::from_min_size(egui::pos2(rect.min.x + 12.0, rect.min.y + y), vec2(239.0, 48.0));
+        let resp = ui.interact(pill, ui.id().with(("backstage-row", name)), Sense::click());
+        if lit {
+            painter.rect_filled(pill, 10.0, t.row_selected);
+        } else if resp.hovered() {
+            painter.rect_filled(pill, 10.0, t.row_hover);
         }
-        painter.circle_stroke(rect.center(), 11.0, egui::Stroke::new(1.5, t.accent));
-        painter.line_segment(
-            [egui::pos2(rect.center().x + 5.0, rect.center().y), egui::pos2(rect.center().x - 4.0, rect.center().y)],
-            egui::Stroke::new(1.5, t.accent),
-        );
-        painter.line_segment(
-            [egui::pos2(rect.center().x - 4.0, rect.center().y), egui::pos2(rect.center().x, rect.center().y - 4.0)],
-            egui::Stroke::new(1.5, t.accent),
-        );
-        painter.line_segment(
-            [egui::pos2(rect.center().x - 4.0, rect.center().y), egui::pos2(rect.center().x, rect.center().y + 4.0)],
-            egui::Stroke::new(1.5, t.accent),
-        );
-        let enabled = ui.is_enabled();
-        back.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "Back"));
-        if back.on_hover_text("Back to the notebook").clicked() {
-            acts.push(Act::Close);
+        let colour = if lit {
+            t.accent
+        } else if muted {
+            t.muted
+        } else {
+            t.text
+        };
+        paint(&painter, egui::pos2(pill.min.x + 14.0, pill.min.y + 14.0), 20.0, icon, colour);
+        text_on_baseline(&painter, pill.min.x + 46.0, pill.min.y + 33.0, false, label, 15.0, colour);
+        let (enabled, said) = (ui.is_enabled(), name.to_string());
+        resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, lit, said.clone()));
+        resp.on_hover_text(tip)
+    };
+    if row(ui, 16.0, &BACK, "Back to notes", "Back to notes", false, true, "Back to the notebook").clicked() {
+        acts.push(Act::Close);
+    }
+    let mut y = 78.0;
+    for (name, built) in SIDE {
+        if !built || name == "Options" {
+            continue;
         }
-        ui.add_space(8.0);
-        for (name, built) in SIDE {
-            if !built && !crate::ribbon::SHOW_UNBUILT {
-                continue;
-            }
-            let selected = name == page;
-            let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
-            let painter = ui.painter_at(rect);
-            if selected {
-                painter.rect_filled(rect, 4.0, t.row_selected);
-            } else if resp.hovered() {
-                painter.rect_filled(rect, 4.0, t.row_hover);
-            }
-            let color = if built { t.text } else { t.muted };
-            painter.text(egui::pos2(rect.min.x + 12.0, rect.center().y), Align2::LEFT_CENTER, name, egui::FontId::proportional(13.5), color);
-            if !built {
-                painter.text(
-                    egui::pos2(rect.max.x - 8.0, rect.center().y),
-                    Align2::RIGHT_CENTER,
-                    "not built",
-                    egui::FontId::proportional(10.0),
-                    t.muted,
-                );
-            }
-            let enabled = ui.is_enabled();
-            let label = name.to_string();
-            resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, selected, label.clone()));
-            if resp.clicked() {
-                acts.push(if built { Act::Page(name) } else { Act::NotBuilt(name) });
-            }
+        let icon: &[Prim] = match name {
+            "Info" => &INFO,
+            "New" => &NEW,
+            "Open" => &OPEN,
+            "Sync" => &SYNC,
+            _ => &EXPORT,
+        };
+        if row(ui, y, icon, name, name, name == page, false, name).clicked() {
+            acts.push(Act::Page(name));
         }
-    });
+        y += 50.0;
+    }
+    if row(ui, height - 64.0, &GEAR, "Options", "Options", page == "Options", false, "Options").clicked() {
+        acts.push(Act::Page("Options"));
+    }
 }
 
 fn heading(ui: &mut Ui, text: &str, t: &Tokens) {
@@ -178,63 +191,107 @@ fn heading(ui: &mut Ui, text: &str, t: &Tokens) {
     ui.add_space(8.0);
 }
 
+/// The notebooks, to a drawn design: a title and the count, the button for a new one, then a card for
+/// each with its cover, its name, how much is in it and where it lives, and what can be done to it.
 fn info_page(ui: &mut Ui, notebooks: &[Node], folder: &str, show_path: &dyn Fn(&std::path::Path) -> String, t: &Tokens, acts: &mut Vec<Act>) {
-    heading(ui, "Notebook information", t);
+    use crate::svgicon::{Prim, paint};
+    use crate::viewtab::{text_on_baseline, text_on_baseline_in};
+    const PLUS: [Prim; 1] = [Prim::Path("M12 5v14M5 12h14")];
+    let ink = egui::Color32::from_rgb(26, 16, 48);
+    let width = ui.available_width();
+    let (head, _) = ui.allocate_exact_size(vec2(width, 126.0), Sense::hover());
+    let painter = ui.painter().clone();
+    text_on_baseline(&painter, head.min.x, head.min.y + 75.0, false, "Notebooks", 28.0, t.text);
+    let items: usize = notebooks.iter().map(Node::count).sum();
+    let sub = format!("{} notebook{} \u{b7} {items} items", notebooks.len(), if notebooks.len() == 1 { "" } else { "s" });
+    text_on_baseline(&painter, head.min.x, head.min.y + 99.0, false, &sub, 14.0, t.muted);
+    let new = egui::Rect::from_min_size(egui::pos2(head.max.x - 175.1, head.min.y + 58.0), vec2(175.1, 44.0));
+    let press = ui.interact(new, ui.id().with("backstage-new-notebook"), Sense::click());
+    painter.rect_filled(new, 10.0, if press.hovered() { crate::theme::mix(t.accent, egui::Color32::WHITE, 0.12) } else { t.accent });
+    paint(&painter, egui::pos2(new.min.x + 14.0, new.min.y + 13.0), 18.0, &PLUS, ink);
+    text_on_baseline(&painter, new.min.x + 40.0, new.min.y + 30.0, false, "New notebook", 14.0, ink);
+    let enabled = ui.is_enabled();
+    press.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "New notebook"));
+    if press.clicked() {
+        acts.push(Act::NewNotebook);
+    }
     if notebooks.is_empty() {
         ui.label(egui::RichText::new("There are no notebooks yet. \"New\" starts one.").color(t.muted));
     }
     egui::ScrollArea::vertical().id_salt("backstage-info").show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 16.0;
         for n in notebooks {
-            ui.horizontal_top(|ui| {
-                // The notebook's cover, in its own colour.
-                let (rect, resp) = ui.allocate_exact_size(vec2(64.0, 64.0), Sense::click());
-                let painter = ui.painter_at(rect);
-                let color = n
-                    .info
-                    .color
-                    .map(|c| {
-                        let (r, g, b) = c.rgb(t.panel.r() < 128);
-                        egui::Color32::from_rgb(r, g, b)
-                    })
-                    .unwrap_or(t.notebook);
-                icons::paint(&painter, rect.shrink(8.0), Icon::Notebook, color);
-                let name = n.info.title.clone();
-                let enabled = ui.is_enabled();
-                resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, format!("Open {name}")));
-                if resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Open this notebook").clicked() {
-                    acts.push(Act::Open(n.path.clone()));
-                }
-                ui.add_space(8.0);
-                ui.vertical(|ui| {
-                    ui.label(egui::RichText::new(&n.info.title).size(17.0).color(t.accent));
-                    ui.label(egui::RichText::new(show_path(&n.path)).size(11.5).monospace().color(t.muted));
-                    ui.horizontal(|ui| {
-                        if ui.small_button("Open folder").clicked() {
-                            acts.push(Act::OpenFolder(n.path.clone()));
-                        }
-                        ui.label(
-                            egui::RichText::new(format!("{} items, {} colour", n.count(), n.info.color.map(NodeColor::label).unwrap_or("no")))
-                                .size(11.0)
-                                .color(t.muted),
-                        );
-                    });
-                });
-            });
-            ui.add_space(10.0);
+            let (card, _) = ui.allocate_exact_size(vec2(width, 108.0), Sense::hover());
+            let painter = ui.painter().clone();
+            painter.rect_filled(card, 16.0, t.panel);
+            painter.rect_stroke(card, 16.0, egui::Stroke::new(1.0, t.faint), egui::StrokeKind::Inside);
+            // The cover, in the notebook's own colour.
+            let color = n
+                .info
+                .color
+                .map(|c| {
+                    let (r, g, b) = c.rgb(t.panel.r() < 128);
+                    egui::Color32::from_rgb(r, g, b)
+                })
+                .unwrap_or(t.notebook);
+            let cover = egui::Rect::from_min_size(card.min + vec2(21.0, 24.0), vec2(48.0, 60.0));
+            painter.rect_filled(cover, 6.0, color);
+            let words = egui::Rect::from_min_max(egui::pos2(cover.min.x, card.min.y), egui::pos2(card.max.x - 260.0, card.max.y));
+            let open = ui.interact(words, ui.id().with(("backstage-notebook", &n.path)), Sense::click());
+            let name = n.info.title.clone();
+            let enabled = ui.is_enabled();
+            open.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, format!("Open {name}")));
+            let title_colour = if open.hovered() { t.accent } else { t.text };
+            if open.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Open this notebook").clicked() {
+                acts.push(Act::Open(n.path.clone()));
+            }
+            text_on_baseline(&painter, card.min.x + 89.0, card.min.y + 43.5, false, &n.info.title, 18.0, title_colour);
+            let colour = n.info.color.map(NodeColor::label).unwrap_or("no");
+            text_on_baseline(
+                &painter,
+                card.min.x + 89.0,
+                card.min.y + 65.5,
+                false,
+                &format!("{} items \u{b7} {colour} colour", n.count()),
+                13.0,
+                t.muted,
+            );
+            text_on_baseline_in(&painter, card.min.x + 89.0, card.min.y + 87.5, false, &show_path(&n.path), egui::FontId::monospace(12.0), t.muted);
+            // What can be done to it: show it in the file manager, or open it.
+            let go = egui::Rect::from_min_size(egui::pos2(card.max.x - 21.0 - 68.0, card.min.y + 32.0), vec2(68.0, 44.0));
+            let folder_btn = egui::Rect::from_min_size(egui::pos2(go.min.x - 12.0 - 131.85, card.min.y + 32.0), vec2(131.85, 44.0));
+            let show = ui.interact(folder_btn, ui.id().with(("backstage-folder", &n.path)), Sense::click());
+            if show.hovered() {
+                painter.rect_filled(folder_btn, 10.0, t.row_hover);
+            }
+            painter.rect_stroke(folder_btn, 10.0, egui::Stroke::new(1.0, crate::theme::mix(t.faint, t.muted, 0.55)), egui::StrokeKind::Inside);
+            text_on_baseline(&painter, folder_btn.center().x, folder_btn.min.y + 27.0, true, "Open folder", 14.0, t.text);
+            let enabled = ui.is_enabled();
+            show.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "Open folder"));
+            if show.clicked() {
+                acts.push(Act::OpenFolder(n.path.clone()));
+            }
+            let enter = ui.interact(go, ui.id().with(("backstage-enter", &n.path)), Sense::click());
+            painter.rect_filled(go, 10.0, if enter.hovered() { crate::theme::mix(t.accent, egui::Color32::WHITE, 0.12) } else { t.accent });
+            text_on_baseline(&painter, go.center().x, go.min.y + 27.0, true, "Open", 14.0, ink);
+            let (enabled, name) = (ui.is_enabled(), format!("Open {} notebook", n.info.title));
+            enter.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name.clone()));
+            if enter.clicked() {
+                acts.push(Act::Open(n.path.clone()));
+            }
+        }
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new(format!("All of them live in {folder}")).size(12.0).color(t.muted));
+        if crate::ribbon::SHOW_UNBUILT {
+            ui.label(
+                egui::RichText::new(
+                    "Online notebooks (OneDrive, SharePoint) are not built. A notebook in a folder your sync tool watches is synced by it.",
+                )
+                .size(11.5)
+                .color(t.muted),
+            );
         }
     });
-    ui.add_space(6.0);
-    ui.separator();
-    ui.label(egui::RichText::new(format!("All of them live in {folder}")).size(11.5).color(t.muted));
-    if crate::ribbon::SHOW_UNBUILT {
-        ui.label(
-            egui::RichText::new(
-                "Online notebooks (OneDrive, SharePoint) are not built. A notebook in a folder your sync tool watches is synced by it.",
-            )
-            .size(11.5)
-            .color(t.muted),
-        );
-    }
 }
 
 /// Sync: the notebooks folder kept in a Git repository on a server.

@@ -5804,39 +5804,18 @@ impl NoteCraftApp {
                     keep = false;
                 }
             }
-            Dialog::Symbols => {
-                let mut chosen: Option<&'static str> = None;
-                egui::Window::new("Insert symbol")
-                    .collapsible(false)
-                    .resizable(false)
-                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
-                    .show(ctx, |ui| {
-                        ui.label("Choose a symbol to insert at the caret");
-                        ui.add_space(6.0);
-                        for row in [["©", "®", "™", "§", "¶"], ["•", "→", "←", "±", "°"], ["×", "÷", "√", "€", "£"], ["¥", "¢", "∞", "≠", "≤"]]
-                        {
-                            ui.horizontal(|ui| {
-                                for symbol in row {
-                                    let button = egui::Button::new(egui::RichText::new(symbol).size(20.0).color(self.tokens.text))
-                                        .min_size(vec2(46.0, 36.0))
-                                        .fill(self.tokens.panel)
-                                        .stroke(egui::Stroke::new(0.8, self.tokens.faint));
-                                    if ui.add(button).clicked() {
-                                        chosen = Some(symbol);
-                                    }
-                                }
-                            });
-                        }
-                        ui.add_space(6.0);
-                        if modal_button(ui, &self.tokens, "Close", false).clicked() {
-                            keep = false;
-                        }
-                    });
-                if let Some(symbol) = chosen {
-                    self.insert_in_page(symbol);
+            Dialog::Symbols => match crate::symboldialog::show(ctx, &self.tokens, self.dialog_lift) {
+                crate::symboldialog::Outcome::Open => {}
+                crate::symboldialog::Outcome::Close => {
+                    crate::symboldialog::reset(ctx);
                     keep = false;
                 }
-            }
+                crate::symboldialog::Outcome::Insert(symbol) => {
+                    crate::symboldialog::reset(ctx);
+                    self.insert_in_page(&symbol);
+                    keep = false;
+                }
+            },
         }
         if keep {
             self.dialog = Some(next);

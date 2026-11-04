@@ -2795,6 +2795,51 @@ fn the_logo_opens_and_closes_the_file_screen() {
     assert_eq!(h.query_all_by_label("Info").count(), 0, "and closed again");
 }
 
+/// The Insert symbol dialog: pick a symbol, see its name, put it in the page; a search narrows the groups.
+#[test]
+fn the_symbol_dialog_picks_searches_and_inserts() {
+    let (_t, mut app, s) = sample_app("ui-symbol-dialog");
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = sized_harness(app, DARK, egui::vec2(1440.0, 900.0));
+    settle(&mut h);
+    h.get_by_label("Insert").click();
+    settle(&mut h);
+    ask(&mut h, "ui.caret", json!({"block": 1})).expect("caret");
+    settle(&mut h);
+    h.get_by_label("Symbol").click();
+    settle(&mut h);
+    review(&mut h, "symbol-dialog");
+    assert!(h.query_all_by_label("Not equal to").count() >= 1, "the symbols are listed by their names");
+    h.get_by_label("Not equal to").click();
+    settle(&mut h);
+    review(&mut h, "symbol-dialog-chosen");
+    // Two things are called Insert: the tab and the dialog's button, which is the later of them.
+    h.get_all_by_label("Insert").last().expect("the button").click();
+    settle(&mut h);
+    assert!(h.state().body().unwrap_or_default().contains('\u{2260}'), "the symbol went into the page");
+    assert!(h.query_all_by_label("Not equal to").count() == 0, "and the dialog closed");
+}
+
+/// The File screen, to the design: the navigation, the notebooks as cards, and the pages behind it.
+#[test]
+fn the_file_screen_is_the_navigation_and_the_notebooks_as_cards() {
+    let (_t, mut app, s) = sample_app("ui-file-screen");
+    app.open_path(&s.md_page.to_string_lossy());
+    app.open_backstage_page("Info");
+    let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 800.0));
+    settle(&mut h);
+    review(&mut h, "file-screen");
+    for entry in ["Back to notes", "Info", "New", "Open", "Sync", "Export", "Options", "New notebook", "Open folder"] {
+        assert!(h.query_all_by_label(entry).count() >= 1, "{entry} is on the File screen");
+    }
+    h.get_by_label("Options").click();
+    settle(&mut h);
+    assert!(h.query_all_by_label_contains("Toolbar layout").count() >= 1, "Options shows its page");
+    h.get_by_label("Back to notes").click();
+    settle(&mut h);
+    assert_eq!(h.query_all_by_label("Info").count(), 0, "Back leaves the File screen");
+}
+
 /// A box copied with Ctrl+C and pasted into another comes back as it was: its heading a heading, its link a
 /// link, its diagram a diagram. The clipboard holds only Markdown text, and pasting that text as one
 /// paragraph, as the ribbon's Paste once did, made a page of lines with their marks showing, blank lines

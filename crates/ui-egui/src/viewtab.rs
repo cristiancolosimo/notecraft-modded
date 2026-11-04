@@ -59,7 +59,13 @@ const CODE: [Prim; 1] = [Prim::Path("M8 7l-5 5 5 5M16 7l5 5-5 5")];
 
 /// Writes `text` with its baseline on `baseline`, from `x` (left) or about it (centre); gives the width.
 pub fn text_on_baseline(painter: &Painter, x: f32, baseline: f32, centre: bool, text: &str, size: f32, colour: Color32) -> f32 {
-    let galley = painter.layout_no_wrap(text.to_string(), FontId::proportional(size), colour);
+    text_on_baseline_in(painter, x, baseline, centre, text, FontId::proportional(size), colour)
+}
+
+/// The same, in any face.
+pub fn text_on_baseline_in(painter: &Painter, x: f32, baseline: f32, centre: bool, text: &str, font: FontId, colour: Color32) -> f32 {
+    let size = font.size;
+    let galley = painter.layout_no_wrap(text.to_string(), font, colour);
     let drop = galley.rows.first().and_then(|row| row.glyphs.first().map(|g| row.pos.y + g.pos.y)).unwrap_or(size * 0.8);
     let width = galley.size().x;
     let left = if centre { x - width / 2.0 } else { x };
