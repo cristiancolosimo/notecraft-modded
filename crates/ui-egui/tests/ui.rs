@@ -2776,6 +2776,25 @@ fn the_insert_tab_has_its_groups_and_its_controls_work() {
     assert!(body.contains("| --- |") || body.contains("|---|") || body.contains("<table"), "a table is in the page:\n{body}");
 }
 
+/// The logo at the top left opens the File screen, and closes it again.
+#[test]
+fn the_logo_opens_and_closes_the_file_screen() {
+    let (_t, mut app, s) = sample_app("ui-logo-file");
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = harness(app, LIGHT);
+    settle(&mut h);
+    assert_eq!(h.query_all_by_label("Notebook information").count(), 0, "the File screen is closed");
+    h.get_by_label("NoteCraft: File").click();
+    settle(&mut h);
+    assert!(
+        h.query_all_by_label_contains("Notebook information").count() >= 1 || h.query_all_by_label("Info").count() >= 1,
+        "the File screen opened"
+    );
+    h.get_by_label("NoteCraft: File").click();
+    settle(&mut h);
+    assert_eq!(h.query_all_by_label("Info").count(), 0, "and closed again");
+}
+
 /// A box copied with Ctrl+C and pasted into another comes back as it was: its heading a heading, its link a
 /// link, its diagram a diagram. The clipboard holds only Markdown text, and pasting that text as one
 /// paragraph, as the ribbon's Paste once did, made a page of lines with their marks showing, blank lines

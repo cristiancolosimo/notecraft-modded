@@ -2020,7 +2020,15 @@ impl NoteCraftApp {
         crate::bidi::line_at(ui, &band, row.center(), Align2::CENTER_CENTER, &text, 12.5, on.text, None);
         let mut left = ui.new_child(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::left_to_right(egui::Align::Center)));
         left.add_space(8.0);
-        left.add(egui::Image::from_bytes("bytes://notecraft-logo", crate::LOGO_PNG).fit_to_exact_size(vec2(18.0, 18.0)));
+        // The logo is the way to the File screen, and back out of it.
+        let logo =
+            left.add(egui::Image::from_bytes("bytes://notecraft-logo", crate::LOGO_PNG).fit_to_exact_size(vec2(18.0, 18.0)).sense(Sense::click()));
+        let (enabled, label) = (left.is_enabled(), "NoteCraft: File");
+        logo.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+        let logo = logo.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("File");
+        if logo.clicked() {
+            self.backstage = if self.backstage.is_some() { None } else { Some("Info") };
+        }
         left.add_space(6.0);
         if self.qat.hidden || !self.qat.below {
             self.quick_access(&mut left, on);
