@@ -2888,6 +2888,59 @@ fn the_home_tab_has_its_groups_and_its_controls_work() {
     assert!(h.state().body().unwrap_or_default().lines().any(|l| l.starts_with("## ")), "and then a heading");
 }
 
+/// A formula typed into a line shows its code while the line is written in, and is drawn as an equation once
+/// the caret has left it.
+#[test]
+fn a_formula_is_code_while_editing_and_an_equation_after() {
+    for (label, html) in [("md", false), ("html", true)] {
+        let (_t, mut app, s) = sample_app(&format!("ui-formula-{label}"));
+        let page = if html { s.html_page.clone() } else { s.md_page.clone() };
+        app.open_path(&page.to_string_lossy());
+        let mut h = sized_harness(app, DARK, egui::vec2(1400.0, 900.0));
+        settle(&mut h);
+        ask(&mut h, "ui.caret", json!({"block": 1})).expect("caret");
+        settle(&mut h);
+        ask(&mut h, "ui.text", json!({"text": " $x^2+y^2$ and more"})).expect("type");
+        settle(&mut h);
+        review(&mut h, &format!("formula-editing-{label}"));
+        // Leaving by moving to another line, as a click elsewhere does.
+        ask(&mut h, "ui.caret", json!({"block": 4})).expect("move on");
+        settle(&mut h);
+        review(&mut h, &format!("formula-moved-{label}"));
+        ask(&mut h, "ui.key", json!({"key": "Escape"})).expect("leave");
+        settle(&mut h);
+        review(&mut h, &format!("formula-left-{label}"));
+        let body = h.state().body().unwrap_or_default().to_string();
+        assert!(body.contains("x^2+y^2"), "the code is in the page ({label}):\n{body}");
+    }
+}
+
+/// What typesets and what does not, for a look at the screenshot (set NOTECRAFT_UI_VISUAL_DIR).
+#[test]
+fn a_page_of_formulas_is_drawn_as_equations() {
+    let (_t, app, s) = sample_app("ui-formulas");
+    let mut h = sized_harness(app, DARK, egui::vec2(1400.0, 1000.0));
+    settle(&mut h);
+    let made = ask(&mut h, "engine.execute", json!({"command": "node.create", "params": {"parent": s.md_page.parent().expect("the section").to_string_lossy(), "kind": "page", "title": "Formulas", "format": "cmgfm"}})).expect("a page");
+    let dir = made.as_str().expect("its path").to_string();
+    let body = "Inline $\\frac{a}{b}+\\sqrt{x}$ and $\\alpha+\\beta=\\gamma$ and $x_i^2$ here.\n\n$$\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$$\n\n$$\n\\int_0^1 x^2\\,dx = \\frac{1}{3}\n$$\n\nMatrix $\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$ and $\\lim_{x\\to 0}\\frac{\\sin x}{x}=1$ and $\\mathbb{R}$ $\\vec{v}$ $\\hat{x}$ $\\overline{AB}$.\n";
+    ask(&mut h, "engine.execute", json!({"command": "page.save", "params": {"path": dir, "body": body}})).expect("save it");
+    ask(&mut h, "ui.open", json!({"path": dir})).expect("open it");
+    settle(&mut h);
+    review(&mut h, "formulas");
+    // A display equation is its code while the caret is in it, and an equation again once the caret leaves.
+    ask(&mut h, "ui.caret", json!({"block": 1})).expect("caret in the equation");
+    settle(&mut h);
+    review(&mut h, "formulas-editing");
+    let inspect = ask(&mut h, "ui.inspect", json!({})).expect("inspect");
+    assert_eq!(inspect["page"]["caret"]["block"], json!(1), "the caret is in the equation: {inspect}");
+    ask(&mut h, "ui.key", json!({"key": "Escape"})).expect("leave");
+    settle(&mut h);
+    let inspect = ask(&mut h, "ui.inspect", json!({})).expect("inspect");
+    assert!(inspect["page"]["caret"].is_null(), "the caret left it: {inspect}");
+    review(&mut h, "formulas-left");
+}
+
 /// A box copied with Ctrl+C and pasted into another comes back as it was: its heading a heading, its link a
 /// link, its diagram a diagram. The clipboard holds only Markdown text, and pasting that text as one
 /// paragraph, as the ribbon's Paste once did, made a page of lines with their marks showing, blank lines

@@ -159,6 +159,25 @@ fn inline(chars: &[char], st: Style, link: Option<String>, depth: usize) -> Vec<
                     i += 1;
                 }
             },
+            // `$$ ... $$` inside a line is an equation too, not a `$` wrapped round one.
+            '$' if next == Some('$') => {
+                match (i + 2..chars.len().saturating_sub(1)).find(|&j| chars.get(j) == Some(&'$') && chars.get(j + 1) == Some(&'$')) {
+                    Some(end) if end > i + 2 && !slice(chars, i + 2, end).contains(&'\n') => {
+                        push_text(&mut out, &mut buf, st, &link);
+                        out.push(Span {
+                            text: slice(chars, i + 2, end).iter().collect::<String>().trim().to_string(),
+                            math: true,
+                            link: link.clone(),
+                            ..Span::default()
+                        });
+                        i = end + 2;
+                    }
+                    _ => {
+                        buf.push(c);
+                        i += 1;
+                    }
+                }
+            }
             '$' => match find(chars, i + 1, &['$']) {
                 Some(end) if end > i + 1 && !slice(chars, i + 1, end).contains(&'\n') => {
                     push_text(&mut out, &mut buf, st, &link);
@@ -290,6 +309,12 @@ fn try_parse_img_block(line: &str) -> Option<Block> {
     Some(Block::Image { alt, src, width, height })
 }
 
+/// The equation of a line that is `$$ ... $$` and nothing else.
+fn one_line_display_math(t: &str) -> Option<String> {
+    let inner = t.strip_prefix("$$")?.strip_suffix("$$")?;
+    (!inner.contains("$$") && !inner.trim().is_empty()).then(|| inner.trim().to_string())
+}
+
 /// Parses a Markdown page body into blocks. Never panics.
 pub fn parse(src: &str) -> Vec<Block> {
     let text = src.replace("\r\n", "\n");
@@ -311,6 +336,24 @@ pub fn parse(src: &str) -> Vec<Block> {
             }
             i += 1;
             out.push(Block::Code { lang, text: body.join("\n") });
+        } else if let Some(tex) = one_line_display_math(t) {
+            // `$$ E = mc^2 $$` on a line of its own is a display equation, as it is between two lines of `$$`.
+            out.push(Block::MathBlock(tex));
+            i += 1;
+        } else if t.len() > 2 && t.starts_with("$$") && !t[2..].contains("$$") {
+            // `$$\sum_i` on the first line and `x_i$$` at the end of a later one.
+            let mut body = vec![t[2..].trim().to_string()];
+            i += 1;
+            while i < lines.len() {
+                let l = lines.get(i).copied().unwrap_or("").trim();
+                i += 1;
+                if let Some(rest) = l.strip_suffix("$$") {
+                    body.push(rest.trim().to_string());
+                    break;
+                }
+                body.push(l.to_string());
+            }
+            out.push(Block::MathBlock(body.join(" ").trim().to_string()));
         } else if t == "$$" {
             let mut body = Vec::new();
             i += 1;
@@ -448,6 +491,21 @@ mod tests {
         assert!(matches!(&b[3], Block::Item { depth: 1, .. }));
         assert!(matches!(&b[4], Block::Item { ordered: true, number: 1, .. }));
         assert!(matches!(&b[5], Block::Item { ordered: true, number: 2, .. }));
+    }
+
+    #[test]
+    fn double_dollars_inside_a_line_are_one_equation() {
+        let s = parse_inline("so $$x^2 + 1$$ here and $y$ too");
+        let maths: Vec<&str> = s.iter().filter(|x| x.math).map(|x| x.text.as_str()).collect();
+        assert_eq!(maths, vec!["x^2 + 1", "y"], "{s:?}");
+    }
+
+    #[test]
+    fn a_display_equation_on_one_line_or_over_several_is_one_block() {
+        let b = parse("$$x^2 + y^2$$\n\n$$\\sum_i\nx_i$$\n\nThe line $$not$$ display, only inline.\n");
+        assert!(matches!(&b[0], Block::MathBlock(m) if m == "x^2 + y^2"), "{b:?}");
+        assert!(matches!(&b[1], Block::MathBlock(m) if m == "\\sum_i x_i"), "{b:?}");
+        assert!(matches!(&b[2], Block::Paragraph(_)), "{b:?}");
     }
 
     #[test]
