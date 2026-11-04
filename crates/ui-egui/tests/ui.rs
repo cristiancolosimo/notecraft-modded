@@ -292,7 +292,7 @@ fn what_cannot_be_written_in_says_so() {
 fn tags_go_on_a_line_and_come_off_again() {
     let (_t, mut app, s) = sample_app("ui-tags");
     app.open_path(&s.md_page.to_string_lossy());
-    let mut h = harness(app, LIGHT);
+    let mut h = sized_harness(app, LIGHT, egui::vec2(1800.0, 760.0));
     settle(&mut h);
     ask(&mut h, "ui.caret", json!({"block": 1})).expect("caret");
     pump(&mut h);
@@ -363,7 +363,9 @@ fn arabic_draws_and_the_direction_controls_work() {
         1,
         "the group's button marks the paragraph the menu's entry does"
     );
-    h.get_by_label("Paragraph direction from the words").click();
+    h.get_by_label("Text run direction").click();
+    h.run_steps(2);
+    h.get_all_by_label("Direction from the words").last().expect("the entry").click();
     h.run_steps(2);
     assert!(!h.state().body().unwrap_or_default().contains('\u{200F}'), "and takes it off again");
 
@@ -567,7 +569,7 @@ fn a_selection_can_be_made_inside_an_arabic_line() {
 fn a_line_looks_the_same_when_the_caret_arrives() {
     let (_t, mut app, s) = sample_app("ui-no-jump");
     app.open_path(&s.md_page.to_string_lossy());
-    let mut h = harness(app, LIGHT);
+    let mut h = sized_harness(app, LIGHT, egui::vec2(1800.0, 760.0));
     settle(&mut h);
     ask(&mut h, "ui.caret", json!({"block": 1})).expect("caret");
     pump(&mut h);
@@ -929,7 +931,7 @@ fn the_ribbon_inserts_in_both_formats() {
 fn the_ribbon_formats_what_the_caret_is_in() {
     let (_t, mut app, s) = sample_app("ui-ribbon-format");
     app.open_path(&s.md_page.to_string_lossy());
-    let mut h = harness(app, LIGHT);
+    let mut h = sized_harness(app, LIGHT, egui::vec2(1800.0, 760.0));
     settle(&mut h);
     ask(&mut h, "ui.caret", json!({"block": 1})).expect("caret");
     pump(&mut h);
@@ -2840,6 +2842,52 @@ fn the_file_screen_is_the_navigation_and_the_notebooks_as_cards() {
     assert_eq!(h.query_all_by_label("Info").count(), 0, "Back leaves the File screen");
 }
 
+/// The Home tab, drawn to the design: its controls are there and the styles, marks and lists act on the page.
+#[test]
+fn the_home_tab_has_its_groups_and_its_controls_work() {
+    let (_t, mut app, s) = sample_app("ui-home-tab");
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = sized_harness(app, DARK, egui::vec2(1600.0, 900.0));
+    settle(&mut h);
+    review(&mut h, "home-tab");
+    for control in [
+        "Undo",
+        "Redo",
+        "Paste",
+        "Cut",
+        "Copy",
+        "Bold",
+        "Italic",
+        "Strikethrough",
+        "Code",
+        "Link",
+        "Clear formatting",
+        "Bullets",
+        "Numbering",
+        "Decrease indentation",
+        "Increase indentation",
+        "Quote",
+        "Heading 1",
+        "Heading 2",
+        "Heading 3",
+        "Normal",
+        "To Do Tag",
+        "More styles",
+        "More tags",
+    ] {
+        assert!(h.query_all_by_label(control).count() >= 1, "{control} is on the Home tab");
+    }
+    ask(&mut h, "ui.caret", json!({"block": 1})).expect("caret");
+    settle(&mut h);
+    h.get_by_label("Bullets").click();
+    settle(&mut h);
+    let body = h.state().body().unwrap_or_default().to_string();
+    assert!(body.lines().any(|l| l.starts_with("- ") || l.starts_with("* ")), "the paragraph became a bullet:\n{body}");
+    h.get_by_label("Heading 2").click();
+    settle(&mut h);
+    assert!(h.state().body().unwrap_or_default().lines().any(|l| l.starts_with("## ")), "and then a heading");
+}
+
 /// A box copied with Ctrl+C and pasted into another comes back as it was: its heading a heading, its link a
 /// link, its diagram a diagram. The clipboard holds only Markdown text, and pasting that text as one
 /// paragraph, as the ribbon's Paste once did, made a page of lines with their marks showing, blank lines
@@ -4487,7 +4535,7 @@ fn ctrl_z_and_the_undo_button_take_back_a_delete() {
     settle(&mut h);
     assert_eq!(look_at(&mut h).pointer("/page/blocks").and_then(Value::as_u64), Some(blocks - 2), "Ctrl+Y did it again");
 
-    h.query_all_by_label("Undo").last().expect("the Undo button").click();
+    h.query_all_by_label("Undo").next().expect("the Undo button").click();
     settle(&mut h);
     assert_eq!(look_at(&mut h).pointer("/page/blocks").and_then(Value::as_u64), Some(blocks), "so did the toolbar's Undo");
     h.query_all_by_label("Redo").last().expect("the Redo button").click();
@@ -5019,7 +5067,7 @@ fn the_styles_list_applies_what_is_picked() {
 fn a_finger_tap_on_the_styles_arrow_opens_the_list_on_a_tablet_sized_window() {
     let (_t, mut app, s) = sample_app("ui-tap-styles");
     app.open_path(&s.md_page.to_string_lossy());
-    let mut h = sized_harness(app, LIGHT, egui::vec2(1280.0, 800.0));
+    let mut h = sized_harness(app, LIGHT, egui::vec2(1800.0, 800.0));
     settle(&mut h);
     assert_eq!(h.query_all_by_label("Heading 5").count(), 0, "the list starts closed");
     let arrow = h.get_by_label("More styles").rect();
@@ -5042,7 +5090,7 @@ fn a_finger_tap_on_the_styles_arrow_opens_the_list_on_a_tablet_sized_window() {
 fn the_ribbon_still_works_with_a_pen_in_hand_and_the_page_scrolled() {
     let (_t, mut app, s) = sample_app("ui-ribbon-under-pen");
     app.open_path(&s.md_page.to_string_lossy());
-    let mut h = sized_harness(app, LIGHT, egui::vec2(1280.0, 800.0));
+    let mut h = sized_harness(app, LIGHT, egui::vec2(1800.0, 800.0));
     settle(&mut h);
     h.get_by_label("Draw").click();
     h.run();

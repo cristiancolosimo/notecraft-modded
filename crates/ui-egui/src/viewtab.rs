@@ -18,7 +18,7 @@ const FIRST_LEFT: f32 = 6.0;
 const PAD_LEFT: f32 = 10.0;
 const PAD_RIGHT: f32 = 11.0;
 /// Between two buttons of a group.
-const GAP: f32 = 2.0;
+pub(crate) const GAP: f32 = 2.0;
 /// A button: its top below the panel's top, its height, its corner, its side padding.
 const BTN_TOP: f32 = 8.0;
 const BTN_H: f32 = 72.0;
@@ -36,7 +36,7 @@ const BASE_ONE: f32 = 57.0;
 const BASE_TWO: [f32; 2] = [50.0, 64.0];
 /// Where the group lines run, and the group names' baseline, below the panel's top.
 const LINE_FROM: f32 = 6.0;
-const LINE_TO: f32 = 100.0;
+pub(crate) const LINE_TO: f32 = 100.0;
 const NAME_BASE: f32 = 99.0;
 /// The zoom column: the box's width, top and height, and the second row.
 const ZOOM_W: f32 = 167.13;
@@ -73,7 +73,7 @@ pub fn text_on_baseline_in(painter: &Painter, x: f32, baseline: f32, centre: boo
     width
 }
 
-fn width_of(painter: &Painter, text: &str, size: f32) -> f32 {
+pub(crate) fn width_of(painter: &Painter, text: &str, size: f32) -> f32 {
     painter.layout_no_wrap(text.to_string(), FontId::proportional(size), Color32::WHITE).size().x
 }
 
@@ -89,13 +89,17 @@ pub(crate) struct Face<'a> {
 
 /// The tab's own colours.
 pub(crate) struct Ink {
-    line: Color32,
-    text: Color32,
-    muted: Color32,
-    on_fill: Color32,
-    on_text: Color32,
-    hover: Color32,
-    outline: Color32,
+    pub line: Color32,
+    pub text: Color32,
+    pub muted: Color32,
+    /// What is written on a control that is off for now.
+    pub disabled: Color32,
+    pub on_fill: Color32,
+    pub on_text: Color32,
+    pub hover: Color32,
+    pub outline: Color32,
+    /// A small chip, such as a shortcut or a code style, on the panel.
+    pub chip: Color32,
 }
 
 impl Ink {
@@ -108,6 +112,8 @@ impl Ink {
             on_text: t.accent,
             hover: t.row_hover,
             outline: mix(t.faint, t.muted, 0.55),
+            disabled: mix(t.panel, t.muted, 0.55),
+            chip: mix(t.panel, t.text, 0.09),
         }
     }
 }

@@ -419,7 +419,7 @@ pub fn show(ui: &mut Ui, tab: &str, source: bool, view: &View<'_>, format: Optio
                 "View" => crate::viewtab::view_tab(ui, source, view, t, &mut acts),
                 TABLE_TAB => table_tab(ui, view, t, &mut acts),
                 SOURCE_TAB => source_tab(ui, format, t, &mut acts),
-                _ => home_tab(ui, view, t, &mut acts),
+                _ => crate::hometab::home_tab(ui, view, t, &mut acts),
             }
         });
     });
@@ -971,9 +971,6 @@ fn rows(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     });
 }
 
-/// The styles the Home tab shows in one line.
-const STYLES_AT_HAND: [(&str, &str); 3] = [("Heading 1", "h1"), ("Heading 2", "h2"), ("Normal", "p")];
-
 /// The styles OneNote lists in its Styles gallery, and what each one is here.
 pub const STYLES: [(&str, &str); 12] = [
     ("Heading 1", "h1"),
@@ -996,167 +993,6 @@ pub fn tag_label(tag: Tag) -> String {
     match tag.shortcut() {
         Some(keys) => format!("{} ({keys})", tag.label()),
         None => tag.label().to_string(),
-    }
-}
-
-fn home_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
-    // Undo comes first, as it does in OneNote's own Home tab: it is the button a writer
-    // reaches for in a hurry, and a page editor without one is not safe to write in.
-    group(ui, "Undo", t, |ui| {
-        rows(ui, |ui| {
-            if row_button(ui, Icon::Undo, "Undo", "Ctrl+Z takes back the last change", view.can_undo, t).clicked() {
-                acts.push(Act::Undo);
-            }
-            if row_button(ui, Icon::Redo, "Redo", "Ctrl+Y puts it back", view.can_redo, t).clicked() {
-                acts.push(Act::Redo);
-            }
-        });
-    });
-    group(ui, "Clipboard", t, |ui| {
-        if big_mark(ui, Mark::Paste, "Paste", "Ctrl+V pastes into the page", t).clicked() {
-            acts.push(Act::Paste);
-        }
-        rows(ui, |ui| {
-            if mark_row(ui, Mark::Cut, "Cut", "Cut the selection", t).clicked() {
-                acts.push(Act::Clipboard("cut"));
-            }
-            if mark_row(ui, Mark::Copy, "Copy", "Copy the selection", t).clicked() {
-                acts.push(Act::Clipboard("copy"));
-            }
-            if SHOW_UNBUILT && mark_row(ui, Mark::Painter, "Format Painter", "Not built", t).clicked() {
-                acts.push(Act::NotBuilt("Format Painter"));
-            }
-        });
-    });
-    group(ui, "Basic Text", t, |ui| {
-        rows(ui, |ui| {
-            ui.horizontal(|ui| {
-                if mark_button(ui, Mark::Bold, "Bold", "Bold (Ctrl+B)", false, t).clicked() {
-                    acts.push(Act::Mark("bold"));
-                }
-                if mark_button(ui, Mark::Italic, "Italic", "Italic (Ctrl+I)", false, t).clicked() {
-                    acts.push(Act::Mark("italic"));
-                }
-                if mark_button(ui, Mark::Strike, "Strikethrough", "Strike through", false, t).clicked() {
-                    acts.push(Act::Mark("strike"));
-                }
-                if small(ui, Some(Icon::Code), "", "Code", "Code, in one line", false, t).clicked() {
-                    acts.push(Act::Mark("code"));
-                }
-                if small(ui, Some(Icon::Link), "", "Link", "A link", false, t).clicked() {
-                    acts.push(Act::Insert("link"));
-                }
-            });
-            ui.horizontal(|ui| {
-                if small(ui, Some(Icon::ListBullet), "", "Bullets", "A bullet list", false, t).clicked() {
-                    acts.push(Act::Block("bullet"));
-                }
-                if small(ui, Some(Icon::ListNumber), "", "Numbering", "A numbered list", false, t).clicked() {
-                    acts.push(Act::Block("number"));
-                }
-                if mark_button(ui, Mark::IndentLess, "Decrease indentation", "Decrease indentation (Shift+Tab)", false, t).clicked() {
-                    acts.push(Act::Indent(false));
-                }
-                if mark_button(ui, Mark::IndentMore, "Increase indentation", "Increase indentation (Tab)", false, t).clicked() {
-                    acts.push(Act::Indent(true));
-                }
-                align_menu(ui, t, acts);
-                if small(ui, Some(Icon::Quote), "", "Quote", "Quote this paragraph", false, t).clicked() {
-                    acts.push(Act::Block("quote"));
-                }
-                if mark_button(ui, Mark::ClearFormat, "Clear formatting", "Take the marks off", false, t).clicked() {
-                    acts.push(Act::ClearFormatting);
-                }
-            });
-        });
-    });
-    // Page direction is NoteCraft's own: OneNote has no such thing, and a notebook written
-    // in Arabic wants one. It stays visible in the ribbon as page setup rather than being
-    // hidden in a Word-style dialog. Paragraph direction remains available beside it,
-    // while the alignment menu remains the primary place for paragraph alignment and
-    // direction.
-    group(ui, "Page Setup", t, |ui| {
-        rows(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Page").size(10.5).color(t.muted));
-                if small(ui, Some(Icon::DirLtr), "", "Page left to right", "The whole page reads left to right", false, t).clicked() {
-                    acts.push(Act::PageDirection(Some(notecraft_model::Dir::Ltr)));
-                }
-                if small(ui, Some(Icon::DirRtl), "", "Page right to left", "The whole page reads right to left (Arabic, Hebrew)", false, t).clicked()
-                {
-                    acts.push(Act::PageDirection(Some(notecraft_model::Dir::Rtl)));
-                }
-                if small(ui, Some(Icon::DirAuto), "Auto", "Page direction from the words", "Every paragraph decides for itself", false, t).clicked() {
-                    acts.push(Act::PageDirection(None));
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Para").size(10.5).color(t.muted));
-                if small(ui, Some(Icon::ParaLtr), "", "Paragraph left to right", "This paragraph reads left to right", false, t).clicked() {
-                    acts.push(Act::Direction(Some(notecraft_model::Dir::Ltr)));
-                }
-                if small(ui, Some(Icon::ParaRtl), "", "Paragraph right to left", "This paragraph reads right to left (Arabic, Hebrew)", false, t)
-                    .clicked()
-                {
-                    acts.push(Act::Direction(Some(notecraft_model::Dir::Rtl)));
-                }
-                if small(
-                    ui,
-                    Some(Icon::ParaAuto),
-                    "Auto",
-                    "Paragraph direction from the words",
-                    "This paragraph decides from its own first letter",
-                    false,
-                    t,
-                )
-                .clicked()
-                {
-                    acts.push(Act::Direction(None));
-                }
-            });
-            run_direction_menu(ui, t, acts);
-        });
-    });
-    group(ui, "Styles", t, |ui| {
-        gallery(ui, "styles", view.style, t, acts, |ui, acts| {
-            // The box is one line of the styles a writer reaches for; the arrow opens the whole list.
-            ui.horizontal_centered(|ui| {
-                for (label, kind) in STYLES_AT_HAND {
-                    if style_chip(ui, label, kind, kind == view.style, t).clicked() {
-                        acts.push(Act::Block(leak(kind)));
-                    }
-                }
-            });
-        });
-    });
-    group(ui, "Tags", t, |ui| {
-        gallery(ui, "tags", "", t, acts, |ui, acts| {
-            for tag in [Tag::ToDo, Tag::Important] {
-                if tag_row(ui, tag, t).clicked() {
-                    acts.push(Act::Tag(tag));
-                }
-            }
-        });
-        if big(ui, Icon::Todo, "To Do\nTag", "A to-do box on this line (Ctrl+1)", t).clicked() {
-            acts.push(Act::Block("todo"));
-        }
-        if SHOW_UNBUILT && big(ui, Icon::Search, "Find\nTags", "Not built", t).clicked() {
-            acts.push(Act::NotBuilt("Find Tags"));
-        }
-    });
-    if SHOW_UNBUILT {
-        group(ui, "Email", t, |ui| {
-            if big(ui, Icon::Attach, "Send\nPage", "Not built", t).clicked() {
-                acts.push(Act::NotBuilt("Send Page"));
-            }
-        });
-    }
-    if SHOW_UNBUILT {
-        group(ui, "Meetings", t, |ui| {
-            if big(ui, Icon::Page, "Meeting\nDetails", "Not built", t).clicked() {
-                acts.push(Act::NotBuilt("Meeting Details"));
-            }
-        });
     }
 }
 
@@ -1258,92 +1094,8 @@ fn toolbar_rule(ui: &mut Ui, t: &Tokens) {
 pub const SHOW_UNBUILT: bool = false;
 
 /// A static name for a style, so an act can carry it.
-fn leak(kind: &str) -> &'static str {
+pub(crate) fn leak(kind: &str) -> &'static str {
     STYLES.iter().find(|(_, k)| *k == kind).map(|(_, k)| *k).unwrap_or("p")
-}
-
-/// A gallery like OneNote's: a bordered box with the first entries, and an arrow that opens
-/// the whole list beside it.
-fn gallery(ui: &mut Ui, which: &'static str, current: &str, t: &Tokens, acts: &mut Vec<Act>, rows_in_box: impl FnOnce(&mut Ui, &mut Vec<Act>)) {
-    let height = GROUP_H - 20.0;
-    let box_rect = egui::Frame::NONE
-        .stroke(egui::Stroke::new(1.0, t.faint))
-        .corner_radius(3.0)
-        .inner_margin(4.0)
-        .show(ui, |ui| {
-            let wide = which == "styles";
-            ui.set_min_size(vec2(130.0, height));
-            ui.set_max_width(190.0);
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing = vec2(if wide { 0.0 } else { 2.0 }, 2.0);
-                rows_in_box(ui, acts);
-            });
-        })
-        .response
-        .rect;
-    // The arrow that opens the whole gallery.
-    let (rect, resp) = ui.allocate_exact_size(vec2(16.0, height), Sense::click());
-    let painter = ui.painter_at(rect);
-    if resp.hovered() {
-        painter.rect_filled(rect, 3.0, t.row_hover);
-    }
-    let c = egui::pos2(rect.center().x, rect.max.y - 8.0);
-    painter.line_segment([egui::pos2(c.x - 4.0, c.y - 2.0), c], egui::Stroke::new(1.4, t.text));
-    painter.line_segment([c, egui::pos2(c.x + 4.0, c.y - 2.0)], egui::Stroke::new(1.4, t.text));
-    let enabled = ui.is_enabled();
-    let name = if which == "styles" { "More styles" } else { "More tags" };
-    resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
-    let resp = resp.on_hover_text(name);
-    // The list opens over the box it belongs to, as OneNote's galleries do: same left edge,
-    // same top, so the two rows in the box are the first two rows of the list.
-    let open_id = egui::Id::new(("ribbon-gallery", which));
-    let mut open = ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false));
-    if resp.clicked() {
-        open = !open;
-    }
-    if open {
-        let mut picked = false;
-        let area = egui::Area::new(open_id.with("area"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(box_rect.min)
-            .show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_min_width(box_rect.width().max(210.0));
-                    ui.spacing_mut().item_spacing = vec2(2.0, 1.0);
-                    if which == "styles" {
-                        for (label, kind) in STYLES {
-                            if style_row(ui, label, kind, kind == current, t).clicked() {
-                                acts.push(Act::Block(leak(kind)));
-                                picked = true;
-                            }
-                        }
-                        ui.separator();
-                        if ui.button("Clear formatting").clicked() {
-                            acts.push(Act::ClearFormatting);
-                            picked = true;
-                        }
-                    } else {
-                        ui.label(egui::RichText::new("Tags").strong());
-                        for tag in Tag::ALL {
-                            if tag_row(ui, tag, t).clicked() {
-                                acts.push(Act::Tag(tag));
-                                picked = true;
-                            }
-                        }
-                        if SHOW_UNBUILT {
-                            ui.separator();
-                            ui.add_enabled(false, egui::Label::new(egui::RichText::new("Customize Tags... (not built)").color(t.muted)));
-                        }
-                    }
-                });
-            })
-            .response;
-        // A click anywhere else closes it, the way a menu does.
-        if picked || away(ui, &area, &resp) {
-            open = false;
-        }
-    }
-    ui.data_mut(|d| d.insert_temp(open_id, open));
 }
 
 /// The equations the Equation button offers, each a name and the TeX it puts in the page. They are
@@ -1395,71 +1147,54 @@ pub(crate) fn equation_popup(resp: &egui::Response, t: &Tokens, acts: &mut Vec<A
     });
 }
 
-/// OneNote's alignment button: a menu of alignment, then the paragraph's direction under a
-/// separator, in that order. Left, centre and right are not built and say so; Justify is,
-/// and is the one of the four NoteCraft has an answer for that no other note taking
-/// application does (see `notecraft_text::kashida`).
+/// The alignment button of the compact toolbar, with its menu.
 fn align_menu(ui: &mut Ui, t: &Tokens, acts: &mut Vec<Act>) {
     let resp = small(ui, Some(Icon::ParaLtr), "", "Alignment and direction", "Alignment, and which way this paragraph reads", false, t);
-    let open_id = egui::Id::new("ribbon-align-menu");
-    let mut open = ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false));
-    if resp.clicked() {
-        open = !open;
-    }
-    if open {
-        let mut picked = false;
-        let area = egui::Area::new(open_id.with("area"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(resp.rect.left_bottom())
-            .show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_min_width(200.0);
-                    ui.spacing_mut().item_spacing = vec2(2.0, 1.0);
-                    for (icon, label, what) in [
-                        (Icon::AlignLeft, "Align Left", "Align left"),
-                        (Icon::AlignCenter, "Center", "Centring"),
-                        (Icon::AlignRight, "Align Right", "Align right"),
-                    ] {
-                        if SHOW_UNBUILT && floating::menu_row(ui, Some(Glyph::Icon(icon)), label, t).clicked() {
-                            acts.push(Act::NotBuilt(what));
-                            picked = true;
-                        }
-                    }
-                    // Word's three, under the names Word gives them, so a writer of Arabic
-                    // meets what they already know. They decide how many kashidas a line
-                    // may take; `docs/rtl-in-word-and-onenote.md` has the comparison.
-                    for (strength, icon, label) in [
-                        (notecraft_model::justify::Strength::Low, Icon::JustifyLow, "Justify Low"),
-                        (notecraft_model::justify::Strength::Medium, Icon::JustifyMedium, "Justify Medium"),
-                        (notecraft_model::justify::Strength::High, Icon::JustifyHigh, "Justify High"),
-                    ] {
-                        if floating::menu_row(ui, Some(Glyph::Icon(icon)), label, t).clicked() {
-                            acts.push(Act::Justify(strength));
-                            picked = true;
-                        }
-                    }
-                    ui.separator();
-                    if direction_row(ui, Some(Icon::ParaLtr), "Left-to-Right", t).clicked() {
-                        acts.push(Act::Direction(Some(notecraft_model::Dir::Ltr)));
-                        picked = true;
-                    }
-                    if direction_row(ui, Some(Icon::ParaRtl), "Right-to-Left", t).clicked() {
-                        acts.push(Act::Direction(Some(notecraft_model::Dir::Rtl)));
-                        picked = true;
-                    }
-                    if direction_row(ui, None, "Direction from the words", t).clicked() {
-                        acts.push(Act::Direction(None));
-                        picked = true;
-                    }
-                });
-            })
-            .response;
-        let clicked_away = ui.input(|i| i.pointer.any_click()) && !area.rect.contains(tap_pos(ui)) && !resp.clicked();
-        if picked || clicked_away || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            open = false;
+    align_popup(&resp, t, acts);
+}
+
+/// Alignment, justification and which way the paragraph reads, in a menu under `resp`.
+pub(crate) fn align_popup(resp: &egui::Response, t: &Tokens, acts: &mut Vec<Act>) {
+    egui::Popup::menu(resp).show(|ui| {
+        ui.set_min_width(200.0);
+        ui.spacing_mut().item_spacing = vec2(2.0, 1.0);
+        for (icon, label, what) in [
+            (Icon::AlignLeft, "Align Left", "Align left"),
+            (Icon::AlignCenter, "Center", "Centring"),
+            (Icon::AlignRight, "Align Right", "Align right"),
+        ] {
+            if SHOW_UNBUILT && floating::menu_row(ui, Some(Glyph::Icon(icon)), label, t).clicked() {
+                acts.push(Act::NotBuilt(what));
+                ui.close();
+            }
         }
-    }
-    ui.data_mut(|d| d.insert_temp(open_id, open));
+        // Word's three, under the names Word gives them, so a writer of Arabic meets what they already
+        // know. They decide how many kashidas a line may take; `docs/rtl-in-word-and-onenote.md` has
+        // the comparison.
+        for (strength, icon, label) in [
+            (notecraft_model::justify::Strength::Low, Icon::JustifyLow, "Justify Low"),
+            (notecraft_model::justify::Strength::Medium, Icon::JustifyMedium, "Justify Medium"),
+            (notecraft_model::justify::Strength::High, Icon::JustifyHigh, "Justify High"),
+        ] {
+            if floating::menu_row(ui, Some(Glyph::Icon(icon)), label, t).clicked() {
+                acts.push(Act::Justify(strength));
+                ui.close();
+            }
+        }
+        ui.separator();
+        if direction_row(ui, Some(Icon::ParaLtr), "Left-to-Right", t).clicked() {
+            acts.push(Act::Direction(Some(notecraft_model::Dir::Ltr)));
+            ui.close();
+        }
+        if direction_row(ui, Some(Icon::ParaRtl), "Right-to-Left", t).clicked() {
+            acts.push(Act::Direction(Some(notecraft_model::Dir::Rtl)));
+            ui.close();
+        }
+        if direction_row(ui, None, "Direction from the words", t).clicked() {
+            acts.push(Act::Direction(None));
+            ui.close();
+        }
+    });
 }
 
 /// One direction choice in a menu, with the icon that identifies its scope: paragraph mark
@@ -1468,43 +1203,28 @@ fn direction_row(ui: &mut Ui, icon: Option<Icon>, label: &str, t: &Tokens) -> eg
     floating::menu_row(ui, icon.map(Glyph::Icon), label, t)
 }
 
-/// The less common direction for a selected or newly typed run, kept in a compact menu like
-/// the paragraph direction entries in OneNote's alignment menu.
-fn run_direction_menu(ui: &mut Ui, t: &Tokens, acts: &mut Vec<Act>) {
-    let resp = small(ui, None, "More...", "Text run direction", "Set the direction of selected text, or the text typed next", false, t);
-    let open_id = egui::Id::new("ribbon-run-direction-menu");
-    let mut open = ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false));
-    if resp.clicked() {
-        open = !open;
-    }
-    if open {
-        let mut picked = false;
-        let area = egui::Area::new(open_id.with("area"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(resp.rect.left_bottom())
-            .show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(6)).show(ui, |ui| {
-                    ui.set_width(220.0);
-                    ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
-                    ui.label(egui::RichText::new("Selected text / next typing").small().color(t.muted));
-                    ui.separator();
-                    if direction_row(ui, Some(Icon::CaretLtr), "Left-to-Right", t).clicked() {
-                        acts.push(Act::Embedding(notecraft_model::Dir::Ltr));
-                        picked = true;
-                    }
-                    if direction_row(ui, Some(Icon::CaretRtl), "Right-to-Left", t).clicked() {
-                        acts.push(Act::Embedding(notecraft_model::Dir::Rtl));
-                        picked = true;
-                    }
-                });
-            })
-            .response;
-        let clicked_away = ui.input(|i| i.pointer.any_click()) && !area.rect.contains(tap_pos(ui)) && !resp.clicked();
-        if picked || clicked_away || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            open = false;
+/// The rest of the direction controls, in a menu under `resp`: the paragraph reading from its words, and
+/// the direction of selected text or of what is typed next.
+pub(crate) fn direction_more_popup(resp: &egui::Response, t: &Tokens, acts: &mut Vec<Act>) {
+    egui::Popup::menu(resp).show(|ui| {
+        ui.set_width(220.0);
+        ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
+        ui.label(egui::RichText::new("This paragraph").small().color(t.muted));
+        if direction_row(ui, Some(Icon::ParaAuto), "Direction from the words", t).clicked() {
+            acts.push(Act::Direction(None));
+            ui.close();
         }
-    }
-    ui.data_mut(|d| d.insert_temp(open_id, open));
+        ui.separator();
+        ui.label(egui::RichText::new("Selected text / next typing").small().color(t.muted));
+        if direction_row(ui, Some(Icon::CaretLtr), "Left-to-Right", t).clicked() {
+            acts.push(Act::Embedding(notecraft_model::Dir::Ltr));
+            ui.close();
+        }
+        if direction_row(ui, Some(Icon::CaretRtl), "Right-to-Left", t).clicked() {
+            acts.push(Act::Embedding(notecraft_model::Dir::Rtl));
+            ui.close();
+        }
+    });
 }
 
 /// One line of the Styles gallery, drawn the way the style looks.
@@ -1529,30 +1249,7 @@ fn style_text(label: &str, kind: &str, t: &Tokens) -> (egui::RichText, egui::Col
     (text, color)
 }
 
-/// One style in the Home tab's line: its name in its own look, boxed when the caret is in it.
-fn style_chip(ui: &mut Ui, label: &str, kind: &str, current: bool, t: &Tokens) -> egui::Response {
-    let (text, color) = style_text(label, kind, t);
-    // Smaller than in the gallery, so five fit in a line.
-    let galley = egui::WidgetText::from(text.size(12.5)).into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Button);
-    let (rect, resp) = ui.allocate_exact_size(vec2(galley.size().x + 10.0, 30.0), Sense::click());
-    let code = kind == "codeblock";
-    if current {
-        ui.painter().rect_filled(rect, 4.0, t.row_selected);
-    } else if resp.hovered() {
-        ui.painter().rect_filled(rect, 4.0, t.row_hover);
-    }
-    if code {
-        ui.painter().rect_filled(rect.shrink2(vec2(2.0, 5.0)), 3.0, t.faint);
-    }
-    let at = egui::pos2(rect.left() + 5.0, rect.center().y - galley.size().y / 2.0);
-    ui.painter().galley(at, galley, color);
-    let enabled = ui.is_enabled();
-    let name = label.to_string();
-    resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, current, name.clone()));
-    resp
-}
-
-fn style_row(ui: &mut Ui, label: &str, kind: &str, current: bool, t: &Tokens) -> egui::Response {
+pub(crate) fn style_row(ui: &mut Ui, label: &str, kind: &str, current: bool, t: &Tokens) -> egui::Response {
     let (text, color) = style_text(label, kind, t);
     let galley = egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Button);
     let width = ui.available_width().max(130.0).min(galley.size().x + 16.0).max(130.0);
@@ -1573,7 +1270,7 @@ fn style_row(ui: &mut Ui, label: &str, kind: &str, current: bool, t: &Tokens) ->
 }
 
 /// One line of the Tags gallery: OneNote's own mark and the name, with its shortcut.
-fn tag_row(ui: &mut Ui, tag: Tag, t: &Tokens) -> egui::Response {
+pub(crate) fn tag_row(ui: &mut Ui, tag: Tag, t: &Tokens) -> egui::Response {
     // A fixed width: the gallery box is as wide as its rows, not as wide as the ribbon.
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width().clamp(150.0, 230.0), 24.0), Sense::click());
     let painter = ui.painter_at(rect);
@@ -1610,26 +1307,6 @@ pub fn mark_for(tag: Tag) -> Mark {
         Tag::Idea => Mark::Idea,
         Tag::Critical => Mark::Critical,
     }
-}
-
-/// A small button that draws one of the ribbon's own marks.
-/// A small button with its name beside the mark, as Office's Cut, Copy and Format Painter
-/// are drawn: a row of those reads as a list of actions, where bare icons read as a puzzle.
-fn mark_row(ui: &mut Ui, mark: Mark, label: &str, tip: &str, t: &Tokens) -> egui::Response {
-    let font = egui::FontId::proportional(11.0);
-    let width = ui.painter().layout_no_wrap(label.to_string(), font.clone(), t.text).size().x + SMALL_W + 8.0;
-    let (rect, resp) = ui.allocate_exact_size(vec2(width, SMALL_H), Sense::click());
-    let painter = ui.painter_at(rect);
-    if resp.hovered() {
-        painter.rect_filled(rect, 4.0, t.row_hover);
-    }
-    let left = Rect::from_center_size(egui::pos2(rect.min.x + 11.0, rect.center().y), vec2(15.0, 15.0));
-    ribbon_icons::paint(&painter, left, mark, mark.color(t.text, t.accent));
-    painter.text(egui::pos2(rect.min.x + 23.0, rect.center().y), Align2::LEFT_CENTER, label, font, t.text);
-    let enabled = ui.is_enabled();
-    let name = label.to_string();
-    resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name.clone()));
-    resp.on_hover_text(tip)
 }
 
 fn mark_button(ui: &mut Ui, mark: Mark, label: &str, tip: &str, on: bool, t: &Tokens) -> egui::Response {
@@ -2782,26 +2459,6 @@ fn source_tab(ui: &mut Ui, format: Option<PageFormat>, t: &Tokens, acts: &mut Ve
             ui.label(egui::RichText::new("The format is set when the page is created").size(10.0).color(t.muted));
         });
     });
-}
-
-/// A big button that draws one of the ribbon's own marks.
-fn big_mark(ui: &mut Ui, mark: Mark, label: &str, tip: &str, t: &Tokens) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(BIG, GROUP_H - 18.0), Sense::click());
-    let painter = ui.painter_at(rect);
-    if resp.hovered() {
-        painter.rect_filled(rect, 4.0, t.row_hover);
-    }
-    ribbon_icons::paint(
-        &painter,
-        Rect::from_center_size(egui::pos2(rect.center().x, rect.min.y + 18.0), vec2(24.0, 24.0)),
-        mark,
-        mark.color(t.text, t.accent),
-    );
-    painter.text(egui::pos2(rect.center().x, rect.min.y + 40.0), Align2::CENTER_CENTER, label, egui::FontId::proportional(11.0), t.text);
-    let enabled = ui.is_enabled();
-    let name = label.to_string();
-    resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name.clone()));
-    resp.on_hover_text(tip)
 }
 
 #[cfg(test)]
