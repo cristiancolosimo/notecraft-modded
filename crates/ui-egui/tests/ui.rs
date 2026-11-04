@@ -2707,6 +2707,32 @@ fn the_cross_on_a_boxs_bar_deletes_it_with_select_in_hand() {
     assert_eq!(now["containers"].as_array().map_or(0, Vec::len), 1, "the box went: {now}");
 }
 
+/// The View tab, drawn to the design: its controls are there, and each does what it says.
+#[test]
+fn the_view_tab_has_its_groups_and_each_control_works() {
+    let (_t, mut app, s) = sample_app("ui-view-tab");
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = sized_harness(app, DARK, egui::vec2(1440.0, 900.0));
+    settle(&mut h);
+    h.get_by_label("View").click();
+    settle(&mut h);
+    review(&mut h, "view-tab");
+    for control in
+        ["Normal view", "Full Page View", "Split", "Format Background", "Zoom Out", "Zoom In", "Page Width", "Always on top", "Theme", "Show HTML"]
+    {
+        assert!(h.query_all_by_label(control).count() >= 1, "{control} is on the View tab");
+    }
+    h.get_by_label("Zoom In").click();
+    settle(&mut h);
+    h.get_by_label("Split").click();
+    settle(&mut h);
+    let v = ask(&mut h, "ui.inspect", json!({})).expect("inspect");
+    assert_eq!(v["panes"]["split"], json!(true), "Split was off and is on: {v}");
+    h.get_by_label("Show HTML").click();
+    settle(&mut h);
+    assert!(h.state().show_source(), "the source is shown");
+}
+
 /// A box copied with Ctrl+C and pasted into another comes back as it was: its heading a heading, its link a
 /// link, its diagram a diagram. The clipboard holds only Markdown text, and pasting that text as one
 /// paragraph, as the ribbon's Paste once did, made a page of lines with their marks showing, blank lines

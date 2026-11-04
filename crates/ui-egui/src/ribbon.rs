@@ -380,7 +380,7 @@ impl View<'_> {
 }
 
 /// How tall the ribbon is: the tab strip, then the groups.
-pub const TAB_STRIP_H: f32 = 28.0;
+pub const TAB_STRIP_H: f32 = 45.0;
 /// The ribbon's own height under the tabs: the buttons, then the group names along the
 /// bottom. Measured against OneNote at 100%, where a group is about 95 pixels tall with
 /// the name taking the last 16 of them.
@@ -416,7 +416,7 @@ pub fn show(ui: &mut Ui, tab: &str, source: bool, view: &View<'_>, format: Optio
                 "Insert" => insert_tab(ui, view, t, &mut acts),
                 "Draw" => draw_tab(ui, view, t, &mut acts),
                 "History" => history_tab(ui, view, t, &mut acts),
-                "View" => view_tab(ui, source, view, t, &mut acts),
+                "View" => crate::viewtab::view_tab(ui, source, view, t, &mut acts),
                 TABLE_TAB => table_tab(ui, view, t, &mut acts),
                 SOURCE_TAB => source_tab(ui, format, t, &mut acts),
                 _ => home_tab(ui, view, t, &mut acts),
@@ -772,29 +772,33 @@ pub fn tabs(source: bool, in_table: bool) -> Vec<&'static str> {
 /// ribbon below it; the others are white writing on the band, lit when the pointer is over
 /// one.
 pub fn tab_strip(ui: &mut Ui, tab: &str, source: bool, in_table: bool, collapsed: bool, t: &Tokens, acts: &mut Vec<Act>) {
+    use crate::svgicon::{Prim, paint};
+    use crate::viewtab::text_on_baseline;
     let chosen = resolve_tab(tab, source, in_table);
+    // From the drawing: the names are 14 points, 15 either side of them, the first 11 from the edge, with
+    // their baseline 32 below the strip's top; the arrow is an 18 icon 21 from the right edge.
+    let top = ui.cursor().min.y;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        ui.add_space(4.0);
+        ui.add_space(11.0);
         let names = std::iter::once(FILE_TAB).chain(tabs(source, in_table));
         for name in names {
             let selected = name == chosen;
-            let font = egui::FontId::proportional(12.5);
-            let galley = ui.painter().layout_no_wrap(name.to_string(), font.clone(), t.text);
-            let (rect, resp) = ui.allocate_exact_size(vec2(galley.size().x + 26.0, TAB_STRIP_H), Sense::click());
+            let galley = ui.painter().layout_no_wrap(name.to_string(), egui::FontId::proportional(14.0), t.text);
+            let (rect, resp) = ui.allocate_exact_size(vec2(galley.size().x + 30.0, TAB_STRIP_H), Sense::click());
             let painter = ui.painter_at(rect);
             if selected {
                 // A line under the chosen tab, in the accent.
                 painter.rect_filled(
-                    egui::Rect::from_min_max(egui::pos2(rect.min.x + 6.0, rect.max.y - 2.0), egui::pos2(rect.max.x - 6.0, rect.max.y)),
+                    egui::Rect::from_min_max(egui::pos2(rect.min.x + 6.0, rect.max.y - 3.0), egui::pos2(rect.max.x - 6.0, rect.max.y - 1.0)),
                     1.0,
                     t.accent,
                 );
             } else if resp.hovered() {
-                painter.rect_filled(rect.shrink2(vec2(1.0, 3.0)), 3.0, t.row_hover);
+                painter.rect_filled(rect.shrink2(vec2(1.0, 6.0)), 6.0, t.row_hover);
             }
             let colour = if selected { t.text } else { t.muted };
-            painter.text(rect.center(), Align2::CENTER_CENTER, name, font, colour);
+            text_on_baseline(&painter, rect.min.x + 15.0, top + 32.0, false, name, 14.0, colour);
             let enabled = ui.is_enabled();
             let label = name.to_string();
             resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, selected, label.clone()));
@@ -803,23 +807,20 @@ pub fn tab_strip(ui: &mut Ui, tab: &str, source: bool, in_table: bool, collapsed
             }
         }
         // At the far end, the arrow that folds the ribbon away to its tabs, and brings it back.
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let (rect, resp) = ui.allocate_exact_size(vec2(32.0, TAB_STRIP_H), Sense::click());
-            let painter = ui.painter_at(rect);
-            if resp.hovered() {
-                painter.rect_filled(rect.shrink2(vec2(2.0, 3.0)), 4.0, t.row_hover);
-            }
-            let c = rect.center() + vec2(0.0, 1.0);
-            let d = if collapsed { 2.5 } else { -2.5 };
-            let stroke = egui::Stroke::new(1.5, t.text);
-            painter.line_segment([egui::pos2(c.x - 5.0, c.y - d), egui::pos2(c.x, c.y + d)], stroke);
-            painter.line_segment([egui::pos2(c.x, c.y + d), egui::pos2(c.x + 5.0, c.y - d)], stroke);
-            let (enabled, name) = (ui.is_enabled(), if collapsed { "Expand the ribbon" } else { "Collapse the ribbon" });
-            resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
-            if resp.on_hover_text(name).clicked() {
-                acts.push(Act::ToggleRibbon);
-            }
-        });
+        let right = ui.max_rect().right();
+        let icon = egui::Rect::from_min_size(egui::pos2(right - 21.0 - 18.0, top + 15.0), vec2(18.0, 18.0));
+        let resp = ui.interact(icon.expand(6.0), ui.id().with("ribbon-fold"), Sense::click());
+        if resp.hovered() {
+            ui.painter().rect_filled(icon.expand(6.0), 6.0, t.row_hover);
+        }
+        let up = [Prim::Path("M6 15l6-6 6 6")];
+        let down = [Prim::Path("M6 9l6 6 6-6")];
+        paint(ui.painter(), icon.min, 18.0, if collapsed { &down } else { &up }, t.text);
+        let (enabled, name) = (ui.is_enabled(), if collapsed { "Expand the ribbon" } else { "Collapse the ribbon" });
+        resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+        if resp.on_hover_text(name).clicked() {
+            acts.push(Act::ToggleRibbon);
+        }
     });
     let line = ui.max_rect().left_top().x..=ui.max_rect().right_top().x;
     ui.painter().hline(line, ui.cursor().min.y, egui::Stroke::new(1.0, t.faint));
@@ -1007,22 +1008,6 @@ fn small(ui: &mut Ui, icon: Option<Icon>, letter: &str, label: &str, tip: &str, 
     let enabled = ui.is_enabled();
     let name = label.to_string();
     resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, on, name.clone()));
-    resp.on_hover_text(tip)
-}
-
-/// A compact Office-style row control with a clear icon and its visible label.
-fn small_labeled_icon(ui: &mut Ui, icon: Icon, label: &str, tip: &str, t: &Tokens) -> egui::Response {
-    let text = ui.painter().layout_no_wrap(label.to_string(), egui::FontId::proportional(12.0), t.text).size();
-    let (rect, resp) = ui.allocate_exact_size(vec2(text.x + 34.0, SMALL_H), Sense::click());
-    let painter = ui.painter_at(rect);
-    if resp.hovered() {
-        painter.rect_filled(rect, 4.0, t.row_hover);
-    }
-    icons::paint_ribbon(ui, Rect::from_center_size(egui::pos2(rect.min.x + 13.0, rect.center().y), vec2(18.0, 18.0)), icon, t.accent);
-    painter.text(egui::pos2(rect.min.x + 27.0, rect.center().y), Align2::LEFT_CENTER, label, egui::FontId::proportional(12.0), t.text);
-    let enabled = ui.is_enabled();
-    let name = label.to_string();
-    resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, false, name.clone()));
     resp.on_hover_text(tip)
 }
 
@@ -1975,7 +1960,7 @@ fn rule_lines_menu(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>
 
 /// The gallery of papers and page colours, opened under `anchor` when it is pressed and closed by
 /// a choice, a press elsewhere or Escape. Used by the ribbon's Format Background and the quick bar.
-fn paper_popup(ui: &mut Ui, anchor: &egui::Response, open_id: egui::Id, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
+pub(crate) fn paper_popup(ui: &mut Ui, anchor: &egui::Response, open_id: egui::Id, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
     let mut open = ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false));
     if anchor.clicked() {
         open = !open;
@@ -2021,6 +2006,12 @@ fn paper_popup(ui: &mut Ui, anchor: &egui::Response, open_id: egui::Id, view: &V
                         }
                     });
                     ui.label(egui::RichText::new("The paper and colour apply to this page only.").small().color(t.muted));
+                    ui.separator();
+                    // The page's title line, shown or hidden.
+                    if floating::menu_check_row(ui, view.hide_title, "Hide page title", t).clicked() {
+                        acts.push(Act::ToggleTitle);
+                        picked = true;
+                    }
                     if SHOW_UNBUILT {
                         ui.separator();
                         ui.add_enabled(false, egui::Label::new(egui::RichText::new("Rule line colour (not built)").color(t.muted)));
@@ -2913,112 +2904,6 @@ fn table_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
             let resp = ui.add_enabled_ui(false, |ui| big(ui, Icon::Spreadsheet, "Convert to\nGridCraft", "GridCraft is not installed", &dim)).inner;
             resp.on_hover_text("Convert to GridCraft: GridCraft is not installed");
         }
-    });
-}
-
-fn view_tab(ui: &mut Ui, source: bool, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
-    // The groups OneNote's View tab has, in its order: Views, Layout, Tools, Page Setup,
-    // Zoom, Window. What NoteCraft does not have says so rather than being left out.
-    group(ui, "Views", t, |ui| {
-        if big_on(
-            ui,
-            Icon::Page,
-            "Normal
-view",
-            "The page beside the notebooks",
-            !view.full_page,
-            t,
-        )
-        .clicked()
-            && view.full_page
-        {
-            acts.push(Act::ToggleFullPage);
-        }
-        if big(ui, if view.full_page { Icon::ExitFullPage } else { Icon::FullPage }, "Full Page\nView", "Give the page the whole window", t).clicked()
-        {
-            acts.push(Act::ToggleFullPage);
-        }
-        rows(ui, |ui| {
-            not_built(ui, "Dock to desktop", t);
-        });
-    });
-    group(ui, "Layout", t, |ui| {
-        // What OneNote calls the navigation pane: notebooks and sections in one
-        // column, the pages of the chosen section in the next.
-        if big_on(ui, Icon::Bars, "Split", "Notebooks and sections in one column, pages in the next", view.split_panes, t).clicked() {
-            acts.push(Act::TogglePanes);
-        }
-        rows(ui, |ui| {
-            not_built(ui, "Tabs layout", t);
-        });
-    });
-    group(ui, "Tools", t, |ui| {
-        rows(ui, |ui| {
-            not_built(ui, "Immersive reader", t);
-            not_built(ui, "Live captions", t);
-        });
-    });
-    group(ui, "Page Setup", t, |ui| {
-        rule_lines_menu(ui, view, t, acts);
-        rows(ui, |ui| {
-            if small(ui, None, "T", "Hide page title", "Hide the page title", view.hide_title, t).clicked() {
-                acts.push(Act::ToggleTitle);
-            }
-            not_built(ui, "Page colour", t);
-            not_built(ui, "Paper size", t);
-        });
-    });
-    group(ui, "Zoom", t, |ui| {
-        ui.horizontal(|ui| {
-            if big(ui, Icon::ZoomOut, "Zoom Out", "Make the page smaller", t).clicked() {
-                acts.push(Act::Zoom(-1));
-            }
-            if big(ui, Icon::ZoomIn, "Zoom In", "Make the page larger", t).clicked() {
-                acts.push(Act::Zoom(1));
-            }
-            rows(ui, |ui| {
-                egui::ComboBox::from_id_salt("page-zoom-percent").width(76.0).selected_text(format!("{}%", view.zoom_percent)).show_ui(ui, |ui| {
-                    for percent in [50, 60, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250] {
-                        if ui.selectable_label(view.zoom_percent == percent, format!("{percent}%")).clicked() {
-                            acts.push(Act::ZoomTo(percent));
-                        }
-                    }
-                });
-                if small(ui, None, "100%", "Zoom to 100%", "Show the page at 100%", false, t).clicked() {
-                    acts.push(Act::Zoom(0));
-                }
-                if small_labeled_icon(ui, Icon::PageWidth, "Page Width", "Fit the page to the available width", t).clicked() {
-                    acts.push(Act::PageWidth);
-                }
-            });
-        });
-    });
-    group(ui, "Window", t, |ui| {
-        rows(ui, |ui| {
-            // Always on top is the window manager's business, and eframe can ask for it.
-            if small(ui, None, "Top", "Always on top", "Keep this window above the others", view.always_on_top, t).clicked() {
-                acts.push(Act::ToggleAlwaysOnTop);
-            }
-            not_built(ui, "New window", t);
-            not_built(ui, "New quick note", t);
-        });
-    });
-    group(ui, "Appearance", t, |ui| {
-        if big(ui, Icon::Sun, "Theme", "Light or dark, and the accent colour", t).clicked() {
-            acts.push(Act::OpenThemes);
-        }
-    });
-    group(ui, "Source", t, |ui| {
-        if big(ui, Icon::Code, if source { "Hide" } else { "Show" }, "The page source, beside the page", t).clicked() {
-            acts.push(Act::ToggleSource);
-        }
-    });
-    group(ui, "Window", t, |ui| {
-        rows(ui, |ui| {
-            not_built(ui, "New window", t);
-            not_built(ui, "Always on top", t);
-            not_built(ui, "Dock to desktop", t);
-        });
     });
 }
 

@@ -49,11 +49,13 @@ pub mod ribbon;
 pub mod ribbon_icons;
 pub mod snippets;
 pub mod stylus;
+pub mod svgicon;
 pub mod syncing;
 pub mod telemetry_export;
 #[cfg(test)]
 mod testing_dir;
 pub mod theme;
+pub mod viewtab;
 
 pub use app::NoteCraftApp;
 
