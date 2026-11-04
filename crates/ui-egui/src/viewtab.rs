@@ -24,6 +24,8 @@ const BTN_TOP: f32 = 8.0;
 const BTN_H: f32 = 72.0;
 const BTN_R: f32 = 10.0;
 const BTN_PAD: f32 = 8.0;
+/// No button is narrower than this; a group is as wide as its buttons or its name, the wider.
+const BTN_MIN_W: f32 = 60.0;
 /// What a label's arrow takes: the gap and the arrow.
 const CARET_ROOM: f32 = 11.0;
 /// Icon top below a button's top: with one line of writing, and with two.
@@ -70,17 +72,17 @@ fn width_of(painter: &Painter, text: &str, size: f32) -> f32 {
 }
 
 /// What is drawn on a button and what a reader of the screen is told it is.
-struct Face<'a> {
-    name: &'a str,
-    lines: &'a [&'a str],
-    icon: &'a [Prim],
-    on: bool,
+pub(crate) struct Face<'a> {
+    pub name: &'a str,
+    pub lines: &'a [&'a str],
+    pub icon: &'a [Prim],
+    pub on: bool,
     /// A small down arrow after the label: the button opens something.
-    caret: bool,
+    pub caret: bool,
 }
 
 /// The tab's own colours.
-struct Ink {
+pub(crate) struct Ink {
     line: Color32,
     text: Color32,
     muted: Color32,
@@ -91,7 +93,7 @@ struct Ink {
 }
 
 impl Ink {
-    fn new(t: &Tokens) -> Ink {
+    pub fn new(t: &Tokens) -> Ink {
         Ink {
             line: t.faint,
             text: t.text,
@@ -104,18 +106,17 @@ impl Ink {
     }
 }
 
-/// One big button at `x`, `top` being the panel's top. Gives its width and whether it was pressed.
-fn button(ui: &mut Ui, ink: &Ink, x: f32, panel_top: f32, face: &Face<'_>, id: &str) -> (f32, egui::Response) {
+/// One big button in `rect`. Gives whether it was pressed.
+fn button(ui: &mut Ui, ink: &Ink, rect: Rect, face: &Face<'_>, id: &str) -> egui::Response {
     let painter = ui.painter().clone();
-    let widest = face.lines.iter().map(|l| width_of(&painter, l, 12.0)).fold(0.0_f32, f32::max) + if face.caret { CARET_ROOM } else { 0.0 };
-    let width = widest + 2.0 * BTN_PAD;
-    let rect = Rect::from_min_size(pos2(x, panel_top + BTN_TOP), vec2(width, BTN_H));
+    let width = rect.width();
     let resp = ui.interact(rect, ui.id().with(("view-button", id)), Sense::click());
     if face.on {
         painter.rect_filled(rect, BTN_R, ink.on_fill);
     } else if resp.hovered() {
         painter.rect_filled(rect, BTN_R, ink.hover);
     }
+    let _ = width;
     let colour = if face.on { ink.on_text } else { ink.text };
     let two = face.lines.len() > 1;
     paint(&painter, pos2(rect.center().x - 12.0, rect.min.y + if two { ICON_TWO } else { ICON_ONE }), 24.0, face.icon, colour);
@@ -134,13 +135,68 @@ fn button(ui: &mut Ui, ink: &Ink, x: f32, panel_top: f32, face: &Face<'_>, id: &
     }
     let (enabled, name, on) = (ui.is_enabled(), face.name.to_string(), face.on);
     resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, on, name.clone()));
-    (width, resp.on_hover_text(face.name))
+    resp.on_hover_text(face.name)
+}
+
+/// What a group is made of: buttons, or a column of its own that the caller draws.
+pub(crate) enum Spec<'a> {
+    Button(Face<'a>, &'a str),
+    Custom(f32),
+}
+
+/// Lays out a group at `x` (its content's left edge): its things side by side, 2 apart, centred in a
+/// content as wide as the things or the group's name, whichever is wider; then the name, and the line.
+/// `each` is called for every thing with its rectangle (and, for a button, its response). Gives where
+/// the next group's content begins.
+pub(crate) fn group(
+    ui: &mut Ui,
+    ink: &Ink,
+    panel_top: f32,
+    x: f32,
+    name: &str,
+    line: bool,
+    specs: &[Spec<'_>],
+    mut each: impl FnMut(&mut Ui, usize, Rect, Option<egui::Response>),
+) -> f32 {
+    let painter = ui.painter().clone();
+    let widths: Vec<f32> = specs
+        .iter()
+        .map(|spec| match spec {
+            Spec::Button(face, _) => {
+                let widest =
+                    face.lines.iter().map(|l| width_of(&painter, l, 12.0)).fold(0.0_f32, f32::max) + if face.caret { CARET_ROOM } else { 0.0 };
+                (widest + 2.0 * BTN_PAD).max(BTN_MIN_W)
+            }
+            Spec::Custom(w) => *w,
+        })
+        .collect();
+    let sum = widths.iter().sum::<f32>() + GAP * specs.len().saturating_sub(1) as f32;
+    let content = sum.max(width_of(&painter, name, 12.0));
+    let mut at = x + (content - sum) / 2.0;
+    for (i, (spec, w)) in specs.iter().zip(&widths).enumerate() {
+        match spec {
+            Spec::Button(face, id) => {
+                let rect = Rect::from_min_size(pos2(at, panel_top + BTN_TOP), vec2(*w, BTN_H));
+                let resp = button(ui, ink, rect, face, id);
+                each(ui, i, rect, Some(resp));
+            }
+            Spec::Custom(_) => each(ui, i, Rect::from_min_size(pos2(at, panel_top), vec2(*w, LINE_TO)), None),
+        }
+        at += w + GAP;
+    }
+    close_group(ui, ink, panel_top, x, x + content, name, line) + PAD_LEFT
 }
 
 /// A group's name under its content, and the line after it.
 fn close_group(ui: &Ui, ink: &Ink, panel_top: f32, from: f32, to: f32, name: &str, line: bool) -> f32 {
     let painter = ui.painter();
-    text_on_baseline(painter, (from + to) / 2.0, panel_top + NAME_BASE, true, name, 12.0, ink.muted);
+    let written = text_on_baseline(painter, (from + to) / 2.0, panel_top + NAME_BASE, true, name, 12.0, ink.muted);
+    // The name is painted, so it is no widget by itself; it is given its words here, so a screen reader
+    // can say which group the buttons are in.
+    let named = Rect::from_center_size(pos2((from + to) / 2.0, panel_top + NAME_BASE - 6.0), vec2(written, 14.0));
+    let (enabled, label) = (ui.is_enabled(), name.to_owned());
+    ui.interact(named, ui.id().with(("view-group", name)), Sense::hover())
+        .widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Label, enabled, &label));
     let x = to + PAD_RIGHT;
     if line {
         painter.vline(x, (panel_top + LINE_FROM)..=(panel_top + LINE_TO), egui::Stroke::new(1.0, ink.line));
@@ -155,96 +211,117 @@ pub fn view_tab(ui: &mut Ui, source: bool, view: &View<'_>, t: &Tokens, acts: &m
     let ink = Ink::new(t);
     let mut x = origin.x + FIRST_LEFT;
 
-    // Views
-    let start = x;
-    let (w, normal) =
-        button(ui, &ink, x, panel_top, &Face { name: "Normal view", lines: &["Normal"], icon: &NORMAL, on: !view.full_page, caret: false }, "normal");
-    if normal.clicked() && view.full_page {
-        acts.push(Act::ToggleFullPage);
-    }
-    x += w + GAP;
-    let (w, full) = button(
+    x = group(
         ui,
         &ink,
-        x,
         panel_top,
-        &Face { name: "Full Page View", lines: &["Full page"], icon: &FULL_PAGE, on: view.full_page, caret: false },
-        "full",
+        x,
+        "Views",
+        true,
+        &[
+            Spec::Button(Face { name: "Normal view", lines: &["Normal"], icon: &NORMAL, on: !view.full_page, caret: false }, "normal"),
+            Spec::Button(Face { name: "Full Page View", lines: &["Full page"], icon: &FULL_PAGE, on: view.full_page, caret: false }, "full"),
+        ],
+        |_, i, _, resp| {
+            if resp.is_some_and(|r| r.clicked()) && (i == 1 || view.full_page) {
+                acts.push(Act::ToggleFullPage);
+            }
+        },
     );
-    if full.clicked() {
-        acts.push(Act::ToggleFullPage);
-    }
-    x = close_group(ui, &ink, panel_top, start, x + w, "Views", true) + PAD_LEFT;
-
-    // Layout
-    let start = x;
-    let (w, split) =
-        button(ui, &ink, x, panel_top, &Face { name: "Split", lines: &["Split"], icon: &SPLIT, on: view.split_panes, caret: false }, "split");
-    if split.clicked() {
-        acts.push(Act::TogglePanes);
-    }
-    x = close_group(ui, &ink, panel_top, start, x + w, "Layout", true) + PAD_LEFT;
-
+    x = group(
+        ui,
+        &ink,
+        panel_top,
+        x,
+        "Layout",
+        true,
+        &[Spec::Button(Face { name: "Split", lines: &["Split"], icon: &SPLIT, on: view.split_panes, caret: false }, "split")],
+        |_, _, _, resp| {
+            if resp.is_some_and(|r| r.clicked()) {
+                acts.push(Act::TogglePanes);
+            }
+        },
+    );
     // Page: the paper and the page colour, in a menu under the button.
-    let start = x;
-    let (w, background) = button(
+    x = group(
         ui,
         &ink,
-        x,
         panel_top,
-        &Face { name: "Format Background", lines: &["Background"], icon: &BACKGROUND, on: false, caret: true },
-        "background",
+        x,
+        "Page",
+        true,
+        &[Spec::Button(Face { name: "Format Background", lines: &["Background"], icon: &BACKGROUND, on: false, caret: true }, "background")],
+        |ui, _, _, resp| {
+            if let Some(resp) = resp {
+                crate::ribbon::paper_popup(ui, &resp, egui::Id::new("view-tab-paper"), view, t, acts);
+            }
+        },
     );
-    crate::ribbon::paper_popup(ui, &background, egui::Id::new("view-tab-paper"), view, t, acts);
-    x = close_group(ui, &ink, panel_top, start, x + w, "Page", true) + PAD_LEFT;
-
-    // Zoom
-    let start = x;
-    let (w, out) =
-        button(ui, &ink, x, panel_top, &Face { name: "Zoom Out", lines: &["Zoom out"], icon: &ZOOM_OUT, on: false, caret: false }, "zoom-out");
-    if out.clicked() {
-        acts.push(Act::Zoom(-1));
-    }
-    x += w + GAP;
-    let (w, inn) = button(ui, &ink, x, panel_top, &Face { name: "Zoom In", lines: &["Zoom in"], icon: &ZOOM_IN, on: false, caret: false }, "zoom-in");
-    if inn.clicked() {
-        acts.push(Act::Zoom(1));
-    }
-    x += w + GAP;
-    zoom_column(ui, &ink, x, panel_top, view, acts);
-    x = close_group(ui, &ink, panel_top, start, x + ZOOM_W, "Zoom", true) + PAD_LEFT;
-
-    // Window
-    let start = x;
-    let (w, top) = button(
+    x = group(
         ui,
         &ink,
-        x,
         panel_top,
-        &Face { name: "Always on top", lines: &["Always on", "top"], icon: &PIN, on: view.always_on_top, caret: false },
-        "top",
+        x,
+        "Zoom",
+        true,
+        &[
+            Spec::Button(Face { name: "Zoom Out", lines: &["Zoom out"], icon: &ZOOM_OUT, on: false, caret: false }, "zoom-out"),
+            Spec::Button(Face { name: "Zoom In", lines: &["Zoom in"], icon: &ZOOM_IN, on: false, caret: false }, "zoom-in"),
+            Spec::Custom(ZOOM_W),
+        ],
+        |ui, i, rect, resp| {
+            let pressed = resp.is_some_and(|r| r.clicked());
+            match i {
+                0 if pressed => acts.push(Act::Zoom(-1)),
+                1 if pressed => acts.push(Act::Zoom(1)),
+                2 => zoom_column(ui, &ink, rect.min.x, panel_top, view, acts),
+                _ => {}
+            }
+        },
     );
-    if top.clicked() {
-        acts.push(Act::ToggleAlwaysOnTop);
-    }
-    x = close_group(ui, &ink, panel_top, start, x + w, "Window", true) + PAD_LEFT;
-
-    // Appearance
-    let start = x;
-    let (w, theme) = button(ui, &ink, x, panel_top, &Face { name: "Theme", lines: &["Theme"], icon: &MOON, on: false, caret: true }, "theme");
-    if theme.clicked() {
-        acts.push(Act::OpenThemes);
-    }
-    x = close_group(ui, &ink, panel_top, start, x + w, "Appearance", true) + PAD_LEFT;
-
+    x = group(
+        ui,
+        &ink,
+        panel_top,
+        x,
+        "Window",
+        true,
+        &[Spec::Button(Face { name: "Always on top", lines: &["Always on", "top"], icon: &PIN, on: view.always_on_top, caret: false }, "top")],
+        |_, _, _, resp| {
+            if resp.is_some_and(|r| r.clicked()) {
+                acts.push(Act::ToggleAlwaysOnTop);
+            }
+        },
+    );
+    x = group(
+        ui,
+        &ink,
+        panel_top,
+        x,
+        "Appearance",
+        true,
+        &[Spec::Button(Face { name: "Theme", lines: &["Theme"], icon: &MOON, on: false, caret: true }, "theme")],
+        |_, _, _, resp| {
+            if resp.is_some_and(|r| r.clicked()) {
+                acts.push(Act::OpenThemes);
+            }
+        },
+    );
     // Source: the last group has no line after it.
-    let start = x;
-    let (w, code) =
-        button(ui, &ink, x, panel_top, &Face { name: "Show HTML", lines: &["Show HTML"], icon: &CODE, on: source, caret: false }, "source");
-    if code.clicked() {
-        acts.push(Act::ToggleSource);
-    }
-    x = close_group(ui, &ink, panel_top, start, x + w, "Source", false);
+    x = group(
+        ui,
+        &ink,
+        panel_top,
+        x,
+        "Source",
+        false,
+        &[Spec::Button(Face { name: "Show HTML", lines: &["Show HTML"], icon: &CODE, on: source, caret: false }, "source")],
+        |_, _, _, resp| {
+            if resp.is_some_and(|r| r.clicked()) {
+                acts.push(Act::ToggleSource);
+            }
+        },
+    );
 
     // The room all this took, so the ribbon knows how wide it is and can scroll.
     ui.allocate_rect(Rect::from_min_max(origin, pos2(x, panel_top + CONTENT_TOP + LINE_TO)), Sense::hover());

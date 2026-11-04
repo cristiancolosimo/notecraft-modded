@@ -34,6 +34,7 @@ pub mod input_language {
 }
 pub mod filebrowser;
 pub mod inkpad;
+pub mod inserttab;
 pub mod kinetic;
 pub mod mathview;
 pub mod mediapicker;

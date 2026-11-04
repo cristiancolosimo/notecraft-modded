@@ -413,7 +413,7 @@ pub fn show(ui: &mut Ui, tab: &str, source: bool, view: &View<'_>, format: Optio
         ui.horizontal_top(|ui| {
             ui.add_space(4.0);
             match chosen {
-                "Insert" => insert_tab(ui, view, t, &mut acts),
+                "Insert" => crate::inserttab::insert_tab(ui, view, t, &mut acts),
                 "Draw" => draw_tab(ui, view, t, &mut acts),
                 "History" => history_tab(ui, view, t, &mut acts),
                 "View" => crate::viewtab::view_tab(ui, source, view, t, &mut acts),
@@ -879,54 +879,6 @@ fn big(ui: &mut Ui, icon: Icon, label: &str, tip: &str, t: &Tokens) -> egui::Res
 /// The same, with the small chevron Office puts on a button that opens something.
 fn big_menu(ui: &mut Ui, icon: Icon, label: &str, tip: &str, t: &Tokens) -> egui::Response {
     big_inner(ui, icon, label, tip, true, false, t)
-}
-
-fn pictures_menu(ui: &mut Ui, t: &Tokens, acts: &mut Vec<Act>) -> bool {
-    let response = big_inner(ui, Icon::Picture, "Pictures", "Choose how to insert a picture", true, false, t);
-    let arrow_rect = Rect::from_min_max(egui::pos2(response.rect.left(), response.rect.bottom() - 28.0), response.rect.right_bottom());
-    let arrow = ui.interact(arrow_rect, ui.id().with("pictures-menu-arrow"), Sense::click());
-    if arrow.hovered() {
-        ui.painter().rect_filled(arrow_rect, 3.0, t.row_hover);
-        chevron(&ui.painter_at(arrow_rect), arrow_rect.center(), t.text);
-    }
-    egui::Popup::menu(&arrow).show(|ui| {
-        egui::Frame::popup(ui.style()).fill(t.panel).corner_radius(8.0).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
-            ui.set_min_width(228.0);
-            if picture_menu_row(ui, Icon::Picture, "Picture from a file", t, true).clicked() {
-                acts.push(Act::AddPicture);
-                ui.close();
-            }
-            let _ = picture_menu_row(ui, Icon::Attach, "From Camera", t, false);
-            let _ = picture_menu_row(ui, Icon::Link, "From Online", t, false);
-        });
-    });
-    response.clicked() && !arrow.clicked()
-}
-
-fn picture_menu_row(ui: &mut Ui, icon: Icon, label: &str, t: &Tokens, enabled: bool) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(212.0, 36.0), Sense::click());
-    if response.hovered() && enabled {
-        ui.painter().rect_filled(rect, 6.0, crate::theme::mix(t.panel, t.accent, 0.12));
-    }
-    let color = if !enabled {
-        t.muted
-    } else if icon == Icon::Picture {
-        t.ok
-    } else {
-        t.accent
-    };
-    let painter = ui.painter_at(rect);
-    let icon_rect = Rect::from_center_size(egui::pos2(rect.left() + 20.0, rect.center().y), vec2(20.0, 20.0));
-    icons::paint_ribbon(ui, icon_rect, icon, color);
-    painter.text(
-        egui::pos2(rect.left() + 43.0, rect.center().y),
-        Align2::LEFT_CENTER,
-        label,
-        egui::FontId::proportional(13.5),
-        if enabled { t.text } else { t.muted },
-    );
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
-    response
 }
 
 /// The small chevron Office puts under anything that opens a menu, and under the tool in
@@ -1416,53 +1368,31 @@ pub const EQUATIONS: &[(&str, &str)] = &[
     ("Euler's identity", r"e^{i\pi} + 1 = 0"),
 ];
 
-/// The Equation button: a list of equations to start from, each drawn as it will look.
-fn equation_gallery(ui: &mut Ui, t: &Tokens, acts: &mut Vec<Act>) {
-    let resp = big_menu(ui, Icon::Equation, "Equation", "An equation, written in TeX: pick one to start from", t);
-    let open_id = egui::Id::new("ribbon-equation-gallery");
-    let mut open = ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false));
-    if resp.clicked() {
-        open = !open;
-    }
-    if open {
-        let mut picked = false;
-        // Under the button, but kept inside the window: the button is far to the right.
-        const WIDTH: f32 = 330.0;
-        let at = egui::pos2(resp.rect.left().min(ui.ctx().content_rect().right() - WIDTH - 6.0).max(4.0), resp.rect.bottom());
-        let area = egui::Area::new(open_id.with("area"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(at)
-            .show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_min_width(WIDTH - 20.0);
-                    ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
-                    for (name, tex) in EQUATIONS {
-                        // The row is the name and the formula; the whole of it is the button.
-                        let inner = ui.horizontal(|ui| {
-                            ui.allocate_ui_with_layout(vec2(150.0, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                ui.add(egui::Label::new(egui::RichText::new(*name).color(t.text)).selectable(false));
-                            });
-                            crate::mathview::inline(ui, tex, 15.0, t.text);
-                        });
-                        let row = ui.interact(inner.response.rect, open_id.with(("row", *name)), Sense::click());
-                        if row.hovered() {
-                            ui.painter().rect_filled(inner.response.rect.expand(2.0), 3.0, t.row_hover.gamma_multiply(0.6));
-                        }
-                        let (enabled, label) = (ui.is_enabled(), format!("Equation: {name}"));
-                        row.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &label));
-                        if row.clicked() {
-                            acts.push(Act::Equation(tex));
-                            picked = true;
-                        }
-                    }
+/// The equations to start from, in a menu under `resp`: each row is the name and the formula.
+pub(crate) fn equation_popup(resp: &egui::Response, t: &Tokens, acts: &mut Vec<Act>) {
+    egui::Popup::menu(resp).show(|ui| {
+        ui.set_min_width(310.0);
+        ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
+        for (name, tex) in EQUATIONS {
+            // The row is the name and the formula; the whole of it is the button.
+            let inner = ui.horizontal(|ui| {
+                ui.allocate_ui_with_layout(vec2(150.0, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.add(egui::Label::new(egui::RichText::new(*name).color(t.text)).selectable(false));
                 });
-            })
-            .response;
-        if picked || away(ui, &area, &resp) {
-            open = false;
+                crate::mathview::inline(ui, tex, 15.0, t.text);
+            });
+            let row = ui.interact(inner.response.rect, ui.id().with(("equation-row", *name)), Sense::click());
+            if row.hovered() {
+                ui.painter().rect_filled(inner.response.rect.expand(2.0), 3.0, t.row_hover.gamma_multiply(0.6));
+            }
+            let (enabled, label) = (ui.is_enabled(), format!("Equation: {name}"));
+            row.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &label));
+            if row.clicked() {
+                acts.push(Act::Equation(tex));
+                ui.close();
+            }
         }
-    }
-    ui.data_mut(|d| d.insert_temp(open_id, open));
+    });
 }
 
 /// OneNote's alignment button: a menu of alignment, then the paragraph's direction under a
@@ -1715,87 +1645,6 @@ fn mark_button(ui: &mut Ui, mark: Mark, label: &str, tip: &str, on: bool, t: &To
     resp.on_hover_text(tip)
 }
 
-/// OneNote's Insert tab, group for group and in its order. What NoteCraft can do is
-/// wired; what it cannot is greyed and says so, so the tab is an honest map of where the
-/// work is rather than a short list of what happens to exist.
-fn insert_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
-    group(ui, "Insert", t, |ui| {
-        if big(ui, Icon::InsertSpace, "Insert\nSpace", "Add a blank paragraph at the caret", t).clicked() {
-            acts.push(Act::Insert("space"));
-        }
-    });
-    group(ui, "Tables", t, |ui| {
-        table_menu(ui, view, t, acts);
-    });
-    group(ui, "Files", t, |ui| {
-        if big(ui, Icon::Page, "File\nPrintout", "Pick a PDF or Office document and insert its pages as pictures", t).clicked() {
-            acts.push(Act::AddPrintout);
-        }
-        if big(ui, Icon::Attach, "File\nAttachment", "A file: copied in, or linked where it is", t).clicked() {
-            acts.push(Act::AddFile);
-        }
-        if view.gridcraft {
-            if big(ui, Icon::Spreadsheet, "Spreadsheet", "A new spreadsheet beside the page, opened in GridCraft", t).clicked() {
-                acts.push(Act::NewGridCraft);
-            }
-        } else {
-            soon(ui, Icon::Spreadsheet, "Spreadsheet", t);
-        }
-    });
-    group(ui, "Images", t, |ui| {
-        soon(ui, Icon::Clip, "Screen\nClipping", t);
-        if pictures_menu(ui, t, acts) {
-            acts.push(Act::AddPicture);
-        }
-    });
-    if SHOW_UNBUILT {
-        group(ui, "Media", t, |ui| {
-            soon(ui, Icon::Video, "Online\nVideo", t);
-        });
-    }
-    group(ui, "Links", t, |ui| {
-        if big(ui, Icon::Link, "Link", "A link to a page or an address", t).clicked() {
-            acts.push(Act::Insert("link"));
-        }
-    });
-    if SHOW_UNBUILT {
-        group(ui, "Recording", t, |ui| {
-            soon(ui, Icon::Mic, "Transcribe", t);
-            soon(ui, Icon::Video, "Record\nVideo", t);
-        });
-    }
-    group(ui, "Time Stamp", t, |ui| {
-        if big(ui, Icon::Calendar, "Date", "Today's date", t).clicked() {
-            acts.push(Act::Insert("date"));
-        }
-        if big(ui, Icon::Clock, "Time", "The time now", t).clicked() {
-            acts.push(Act::Insert("time"));
-        }
-        if big(ui, Icon::Calendar, "Date &\nTime", "Both, as the page's own stamp is written", t).clicked() {
-            acts.push(Act::Insert("datetime"));
-        }
-    });
-    if SHOW_UNBUILT {
-        group(ui, "Pages", t, |ui| {
-            soon(ui, Icon::PageStack, "Page\nTemplates", t);
-        });
-    }
-    group(ui, "Symbols", t, |ui| {
-        equation_gallery(ui, t, acts);
-        if big_menu(ui, Icon::Symbol, "Symbol", "Insert a common symbol", t).clicked() {
-            acts.push(Act::Symbols);
-        }
-    });
-    group(ui, "More", t, |ui| {
-        // NoteCraft's own addition to OneNote's group: a diagram kept as its source, so it
-        // can be read and changed in any editor rather than being a picture of one.
-        if big(ui, Icon::Diagram, "Diagram", "A Mermaid diagram, kept as its source", t).clicked() {
-            acts.push(Act::Insert("diagram"));
-        }
-        soon(ui, Icon::Sticker, "Stickers", t);
-    });
-}
-
 /// One paper in the gallery: the paper itself, drawn small, with its name under it. Picking
 /// a paper is picking a look, so the look is what is shown; the name is there to say it.
 fn paper_swatch(ui: &mut Ui, r: RuleLines, here: bool, t: &Tokens) -> egui::Response {
@@ -1858,96 +1707,74 @@ fn colour_swatch(ui: &mut Ui, colour: Option<notecraft_model::NodeColor>, here: 
     resp.on_hover_text(name)
 }
 
-/// OneNote's Table button: a grid to pick the size from, the way OneNote picks one.
-///
-/// Running the pointer over the grid lights the cells up to it and names the size, and a
-/// click puts a table of that size on the page. OneNote's menu ends with a dialog and a
-/// new Excel spreadsheet; the dialog is not built, and the spreadsheet is GridCraft's.
-fn table_menu(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
+/// The size picker: a grid of squares, lit up to the pointer, with the size named above it. The square
+/// pressed, as (row, column) from zero.
+fn table_grid(ui: &mut Ui, open_id: egui::Id, t: &Tokens) -> Option<(usize, usize)> {
     const MOST: usize = 8;
     const SIDE: f32 = 17.0;
     const GAP: f32 = 3.0;
+    let across = MOST as f32 * (SIDE + GAP) - GAP;
+    // The size is named above the grid, as OneNote names it, so the rect is taken first and written
+    // into once the pointer has been read.
+    let (naming, _) = ui.allocate_exact_size(vec2(across, 18.0), Sense::hover());
+    let (grid, _) = ui.allocate_exact_size(vec2(across, across), Sense::hover());
+    // Every square is its own button, named for the size it picks: the grid then answers the keyboard
+    // and a screen reader, not only the pointer.
+    let mut over = None;
+    let mut chose = None;
+    let mut cells = Vec::with_capacity(MOST * MOST);
+    for r in 0..MOST {
+        for c in 0..MOST {
+            let at = grid.min + vec2(c as f32 * (SIDE + GAP), r as f32 * (SIDE + GAP));
+            let cell = egui::Rect::from_min_size(at, egui::vec2(SIDE, SIDE));
+            let resp = ui.interact(cell, open_id.with((r, c)), Sense::click());
+            let name = format!("{} x {} Table", c + 1, r + 1);
+            let enabled = ui.is_enabled();
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &name));
+            if resp.hovered() {
+                over = Some((r, c));
+            }
+            if resp.clicked() {
+                chose = Some((r, c));
+            }
+            cells.push((r, c, cell));
+        }
+    }
+    let paint = ui.painter();
+    for (r, c, cell) in cells {
+        let lit = over.is_some_and(|(hr, hc)| r <= hr && c <= hc);
+        let (fill, line) = if lit { (t.accent.gamma_multiply(0.25), t.accent) } else { (t.editor, t.table_line) };
+        paint.rect_filled(cell, 1.0, fill);
+        paint.rect_stroke(cell, 1.0, egui::Stroke::new(1.0, line), egui::StrokeKind::Inside);
+    }
+    let title = match over {
+        Some((r, c)) => format!("{} x {} Table", c + 1, r + 1),
+        None => "Table".to_string(),
+    };
+    paint.text(naming.left_top(), egui::Align2::LEFT_TOP, title, egui::FontId::proportional(13.0), t.text);
+    chose
+}
 
-    let resp = big_menu(ui, Icon::Table, "Table", "A table: pick its size", t);
-    let open_id = egui::Id::new("ribbon-insert-table");
-    let mut open = ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(false));
-    if resp.clicked() {
-        open = !open;
-    }
-    if !open {
-        ui.data_mut(|d| d.insert_temp(open_id, open));
-        return;
-    }
-    let mut picked = false;
-    let area = egui::Area::new(open_id.with("area"))
-        .order(egui::Order::Foreground)
-        .fixed_pos(resp.rect.left_bottom())
-        .show(ui.ctx(), |ui| {
-            egui::Frame::popup(ui.style()).show(ui, |ui| {
-                ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
-                let across = MOST as f32 * (SIDE + GAP) - GAP;
-                // The size is named above the grid, as OneNote names it, so the rect is
-                // taken first and written into once the pointer has been read.
-                let (naming, _) = ui.allocate_exact_size(vec2(across, 18.0), Sense::hover());
-                let (grid, _) = ui.allocate_exact_size(vec2(across, across), Sense::hover());
-                // Every square is its own button, named for the size it picks: the grid
-                // then answers the keyboard and a screen reader, not only the pointer.
-                let mut over = None;
-                let mut chose = None;
-                let mut cells = Vec::with_capacity(MOST * MOST);
-                for r in 0..MOST {
-                    for c in 0..MOST {
-                        let at = grid.min + vec2(c as f32 * (SIDE + GAP), r as f32 * (SIDE + GAP));
-                        let cell = egui::Rect::from_min_size(at, egui::vec2(SIDE, SIDE));
-                        let resp = ui.interact(cell, open_id.with((r, c)), Sense::click());
-                        let name = format!("{} x {} Table", c + 1, r + 1);
-                        let enabled = ui.is_enabled();
-                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &name));
-                        if resp.hovered() {
-                            over = Some((r, c));
-                        }
-                        if resp.clicked() {
-                            chose = Some((r, c));
-                        }
-                        cells.push((r, c, cell));
-                    }
-                }
-                let paint = ui.painter();
-                for (r, c, cell) in cells {
-                    let lit = over.is_some_and(|(hr, hc)| r <= hr && c <= hc);
-                    let (fill, line) = if lit { (t.accent.gamma_multiply(0.25), t.accent) } else { (t.editor, t.table_line) };
-                    paint.rect_filled(cell, 1.0, fill);
-                    paint.rect_stroke(cell, 1.0, egui::Stroke::new(1.0, line), egui::StrokeKind::Inside);
-                }
-                let title = match over {
-                    Some((r, c)) => format!("{} x {} Table", c + 1, r + 1),
-                    None => "Table".to_string(),
-                };
-                paint.text(naming.left_top(), egui::Align2::LEFT_TOP, title, egui::FontId::proportional(13.0), t.text);
-                if let Some((r, c)) = chose {
-                    acts.push(Act::InsertTable(r + 1, c + 1));
-                    picked = true;
-                }
-                if SHOW_UNBUILT {
-                    ui.separator();
-                    ui.add_enabled(false, egui::Label::new(egui::RichText::new("Insert Table... (not built)").color(t.muted)));
-                }
-                if view.gridcraft {
-                    if floating::menu_row(ui, Some(Glyph::Icon(Icon::Spreadsheet)), "New GridCraft Spreadsheet", t).clicked() {
-                        acts.push(Act::NewGridCraft);
-                        picked = true;
-                    }
-                } else {
-                    ui.add_enabled(false, egui::Label::new(egui::RichText::new("New GridCraft Spreadsheet (not installed)").color(t.muted)));
-                }
-            });
-        })
-        .response;
-    let clicked_away = ui.input(|i| i.pointer.any_click()) && !area.rect.contains(tap_pos(ui)) && !resp.clicked();
-    if picked || clicked_away || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-        open = false;
-    }
-    ui.data_mut(|d| d.insert_temp(open_id, open));
+/// The table size picker, in a menu under `resp`: a grid to pick the size from, the way OneNote picks one.
+///
+/// Running the pointer over the grid lights the cells up to it and names the size, and a click puts a
+/// table of that size on the page. The menu ends with a new spreadsheet, which is GridCraft's.
+pub(crate) fn table_popup(resp: &egui::Response, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
+    egui::Popup::menu(resp).show(|ui| {
+        ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+        if let Some((r, c)) = table_grid(ui, egui::Id::new("ribbon-insert-table"), t) {
+            acts.push(Act::InsertTable(r + 1, c + 1));
+            ui.close();
+        }
+        if view.gridcraft {
+            if floating::menu_row(ui, Some(Glyph::Icon(Icon::Spreadsheet)), "New GridCraft Spreadsheet", t).clicked() {
+                acts.push(Act::NewGridCraft);
+                ui.close();
+            }
+        } else {
+            ui.add_enabled(false, egui::Label::new(egui::RichText::new("New GridCraft Spreadsheet (not installed)").color(t.muted)));
+        }
+    });
 }
 
 /// OneNote's Rule Lines button: the paper now, and a gallery of every paper under it.

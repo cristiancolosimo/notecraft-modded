@@ -2733,6 +2733,49 @@ fn the_view_tab_has_its_groups_and_each_control_works() {
     assert!(h.state().show_source(), "the source is shown");
 }
 
+/// The Insert tab, drawn to the design: its controls are there, and a few of them put something in the page.
+#[test]
+fn the_insert_tab_has_its_groups_and_its_controls_work() {
+    let (_t, mut app, s) = sample_app("ui-insert-tab");
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = sized_harness(app, DARK, egui::vec2(1440.0, 900.0));
+    settle(&mut h);
+    h.get_by_label("Insert").click();
+    settle(&mut h);
+    review(&mut h, "insert-tab");
+    for control in [
+        "Insert Space",
+        "Table",
+        "File Printout",
+        "File Attachment",
+        "Pictures",
+        "Link",
+        "Date",
+        "Time",
+        "Date & Time",
+        "Equation",
+        "Symbol",
+        "Diagram",
+    ] {
+        assert!(h.query_all_by_label(control).count() >= 1, "{control} is on the Insert tab");
+    }
+    let blocks = |h: &mut Harness<'_, NoteCraftApp>| ask(h, "ui.inspect", json!({})).expect("inspect")["page"]["blocks"].as_u64().unwrap_or(0);
+    ask(&mut h, "ui.caret", json!({"block": 1})).expect("caret");
+    settle(&mut h);
+    let before = blocks(&mut h);
+    h.get_by_label("Insert Space").click();
+    settle(&mut h);
+    assert_eq!(blocks(&mut h), before + 1, "Space added a paragraph");
+    // The table menu opens with the size grid.
+    h.get_by_label("Table").click();
+    settle(&mut h);
+    assert!(h.query_all_by_label("3 x 3 Table").count() >= 1, "the size grid is open");
+    h.get_by_label("2 x 2 Table").click();
+    settle(&mut h);
+    let body = h.state().body().unwrap_or_default().to_string();
+    assert!(body.contains("| --- |") || body.contains("|---|") || body.contains("<table"), "a table is in the page:\n{body}");
+}
+
 /// A box copied with Ctrl+C and pasted into another comes back as it was: its heading a heading, its link a
 /// link, its diagram a diagram. The clipboard holds only Markdown text, and pasting that text as one
 /// paragraph, as the ribbon's Paste once did, made a page of lines with their marks showing, blank lines
