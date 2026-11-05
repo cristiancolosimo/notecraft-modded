@@ -15,6 +15,8 @@ pub enum Act {
     /// Leave the File screen.
     Close,
     NewNotebook,
+    /// Make a notebook with this name and colour, and open it.
+    CreateNotebook(String, Option<NodeColor>),
     /// Write the Welcome notebook into the notebooks folder, or open it if it is there.
     AddWelcome,
     /// Show this notebook's folder in the file manager.
@@ -106,7 +108,7 @@ pub fn show(
                 }
                 ui.add_space(18.0);
                 match page {
-                    "New" => new_page(ui, notebooks_folder, t, &mut acts),
+                    "New" => new_page(ui, notebooks, notebooks_folder, show_path, t, &mut acts),
                     "Open" => open_page(ui, recent, notebooks_folder, show_path, t, &mut acts),
                     "Sync" => sync_page(ui, sync, t, &mut acts),
                     "Export" => export_page(ui, notebooks, show_path, t, &mut acts),
@@ -394,34 +396,146 @@ fn export_page(ui: &mut Ui, notebooks: &[Node], show_path: &dyn Fn(&std::path::P
     });
 }
 
-fn new_page(ui: &mut Ui, folder: &str, t: &Tokens, acts: &mut Vec<Act>) {
-    heading(ui, "New notebook", t);
-    ui.label(egui::RichText::new(format!("A new notebook is a folder in {folder}, with one section and one page inside it.")).color(t.text));
-    ui.add_space(10.0);
-    if ui.button("New notebook").clicked() {
-        acts.push(Act::NewNotebook);
-    }
-    ui.add_space(14.0);
-    ui.label(egui::RichText::new("The welcome notebook").size(14.0).color(t.strong));
-    ui.label(
-        egui::RichText::new("A tour of NoteCraft, shown on its own pages. It is added to an empty notebooks folder on the first start; this adds it again, or opens it if it is still here.")
-            .size(11.5)
-            .color(t.muted),
+/// New, to a drawn design: a card to start an empty notebook (name and colour), and one for the Welcome notebook.
+fn new_page(ui: &mut Ui, notebooks: &[Node], folder: &str, show_path: &dyn Fn(&std::path::Path) -> String, t: &Tokens, acts: &mut Vec<Act>) {
+    use crate::svgicon::{Prim, paint};
+    use crate::viewtab::{text_on_baseline, text_on_baseline_in};
+    const BOOK: [Prim; 2] = [Prim::Path("M4 5a2 2 0 012-2h12v18H6a2 2 0 01-2-2z"), Prim::Path("M8 3v18M12 8h4M12 12h4")];
+    let ink = egui::Color32::from_rgb(26, 16, 48);
+    let outline = crate::theme::mix(t.faint, t.muted, 0.55);
+    let field_fill = crate::theme::mix(t.editor, egui::Color32::BLACK, 0.2);
+    let width = ui.available_width().min(760.0);
+    let dark = t.panel.r() < 128;
+    let (name_id, colour_id) = (ui.id().with("new-notebook-name"), ui.id().with("new-notebook-colour"));
+    let mut name: String = ui.data_mut(|d| d.get_temp(name_id).unwrap_or_default());
+    let mut colour: Option<NodeColor> = ui.data_mut(|d| d.get_temp(colour_id).unwrap_or(Some(NodeColor::Purple)));
+    let (head, _) = ui.allocate_exact_size(vec2(width, 100.0), Sense::hover());
+    text_on_baseline(ui.painter(), head.min.x, head.min.y + 75.0, false, "New", 28.0, t.text);
+    // The card to start an empty notebook.
+    let (card, _) = ui.allocate_exact_size(vec2(width, 352.0), Sense::hover());
+    let painter = ui.painter().clone();
+    painter.rect_filled(card, 16.0, t.panel);
+    painter.rect_stroke(card, 16.0, egui::Stroke::new(1.0, t.faint), egui::StrokeKind::Inside);
+    let x = card.min.x + 25.0;
+    text_on_baseline(&painter, x, card.min.y + 47.5, false, "Empty notebook", 18.0, t.text);
+    text_on_baseline(&painter, x, card.min.y + 71.0, false, "It starts with one section and one page, ready to write in.", 14.0, t.muted);
+    text_on_baseline(&painter, x, card.min.y + 112.0, false, "Name", 14.0, t.text);
+    let field = egui::Rect::from_min_size(egui::pos2(x, card.min.y + 121.0), vec2(width - 50.0, 46.0));
+    painter.rect_filled(field, 10.0, field_fill);
+    // Placed without moving the page's cursor: the cards below are laid out from the card's own corner.
+    let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(field.shrink2(vec2(13.0, 11.0))));
+    let edit = inner.add(
+        egui::TextEdit::singleline(&mut name)
+            .frame(egui::Frame::NONE)
+            .desired_width(f32::INFINITY)
+            .font(egui::FontId::proportional(15.0))
+            .text_color(t.text),
     );
-    ui.add_space(6.0);
-    if ui.button("Add the welcome notebook").clicked() {
-        acts.push(Act::AddWelcome);
+    painter.rect_stroke(
+        field,
+        10.0,
+        egui::Stroke::new(
+            if edit.has_focus() { 2.0 } else { 1.0 },
+            if edit.has_focus() { t.accent } else { crate::theme::mix(t.faint, t.muted, 0.7) },
+        ),
+        egui::StrokeKind::Inside,
+    );
+    let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    text_on_baseline(&painter, x, card.min.y + 206.0, false, "Colour", 14.0, t.text);
+    let choices = [
+        Some(NodeColor::Purple),
+        Some(NodeColor::Blue),
+        Some(NodeColor::Green),
+        Some(NodeColor::Orange),
+        Some(NodeColor::Red),
+        Some(NodeColor::Gray),
+        None,
+    ];
+    for (i, choice) in choices.into_iter().enumerate() {
+        let dot = egui::Rect::from_min_size(egui::pos2(x + 44.0 * i as f32, card.min.y + 225.0), vec2(24.0, 24.0));
+        let label = choice.map(NodeColor::label).unwrap_or("No colour");
+        let hit = ui.interact(dot.expand(4.0), ui.id().with(("new-notebook-swatch", i)), Sense::click());
+        let enabled = ui.is_enabled();
+        let chosen = colour == choice;
+        hit.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::RadioButton, enabled, chosen, label));
+        if chosen {
+            painter.circle_filled(dot.center(), 16.0, t.text);
+            painter.circle_filled(dot.center(), 14.0, t.panel);
+        }
+        match choice {
+            Some(c) => {
+                let (r, g, b) = c.rgb(dark);
+                painter.circle_filled(dot.center(), 12.0, egui::Color32::from_rgb(r, g, b));
+            }
+            None => {
+                painter.circle_stroke(dot.center(), 11.5, egui::Stroke::new(1.0, crate::theme::mix(t.faint, t.muted, 0.7)));
+            }
+        }
+        if hit.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(label).clicked() {
+            colour = choice;
+        }
     }
-    if crate::ribbon::SHOW_UNBUILT {
-        ui.add_space(14.0);
-        ui.label(egui::RichText::new("Somewhere else").size(14.0).color(t.strong));
-        ui.label(
-            egui::RichText::new(
-                "OneDrive and SharePoint: not built. Point NoteCraft at a folder your sync tool already watches and it is the same thing.",
-            )
-            .size(11.5)
-            .color(t.muted),
-        );
+    // The button, as wide as its words, and where the notebook will be written.
+    let font = egui::FontId::proportional(14.0);
+    let words = painter.layout_no_wrap("Create notebook".into(), font, ink).size().x;
+    let create = egui::Rect::from_min_size(egui::pos2(x, card.min.y + 283.0), vec2(words + 32.0, 44.0));
+    let ready = !name.trim().is_empty();
+    let press = ui.interact(create, ui.id().with("new-notebook-create"), if ready { Sense::click() } else { Sense::hover() });
+    let fill = if press.hovered() { crate::theme::mix(t.accent, egui::Color32::WHITE, 0.12) } else { t.accent };
+    painter.rect_filled(create, 10.0, fill);
+    text_on_baseline(&painter, create.min.x + 16.0, create.min.y + 30.0, false, "Create notebook", 14.0, ink);
+    let enabled = ready && ui.is_enabled();
+    press.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "Create notebook"));
+    let there = format!("In {}", show_path(std::path::Path::new(folder)));
+    let after = create.max.x + 16.0;
+    text_on_baseline(&painter, after, create.min.y + 26.25, false, "In ", 12.0, t.muted);
+    text_on_baseline_in(&painter, after + 13.0, create.min.y + 27.25, false, &there[3..], egui::FontId::monospace(12.0), t.muted);
+    if ready && (press.clicked() || enter) {
+        acts.push(Act::CreateNotebook(name.trim().to_string(), colour));
+        name.clear();
+    }
+    ui.data_mut(|d| {
+        d.insert_temp(name_id, name);
+        d.insert_temp(colour_id, colour);
+    });
+    // The card for the Welcome notebook.
+    ui.add_space(24.0);
+    let (card, _) = ui.allocate_exact_size(vec2(width, 90.0), Sense::hover());
+    let painter = ui.painter().clone();
+    painter.rect_filled(card, 16.0, t.panel);
+    painter.rect_stroke(card, 16.0, egui::Stroke::new(1.0, t.faint), egui::StrokeKind::Inside);
+    let tile = egui::Rect::from_min_size(card.min + vec2(25.0, 21.0), vec2(48.0, 48.0));
+    painter.rect_filled(tile, 12.0, t.row_selected);
+    paint(&painter, tile.min + vec2(12.0, 12.0), 24.0, &BOOK, t.accent);
+    let title = "Welcome notebook";
+    let words = text_on_baseline(&painter, card.min.x + 93.0, card.min.y + 43.5, false, title, 18.0, t.text);
+    let present = notecraft_engine::welcome::installed(notebooks).is_some();
+    if present {
+        let badge = egui::Rect::from_min_size(egui::pos2(card.min.x + 93.0 + words + 10.0, card.min.y + 23.0), vec2(85.5, 20.0));
+        painter.rect_filled(badge, 10.0, crate::theme::mix(t.panel, t.muted, 0.2));
+        text_on_baseline(&painter, badge.min.x + 8.0, badge.min.y + 17.0, false, "Already here", 12.0, t.muted);
+    }
+    text_on_baseline(
+        &painter,
+        card.min.x + 93.0,
+        card.min.y + 67.0,
+        false,
+        "A guided tour of NoteCraft, written in pages you can edit.",
+        14.0,
+        t.muted,
+    );
+    let label = if present { "Open" } else { "Add" };
+    let go = egui::Rect::from_min_size(egui::pos2(card.max.x - 25.0 - 60.2, card.min.y + 23.0), vec2(60.2, 44.0));
+    let press = ui.interact(go, ui.id().with("new-welcome"), Sense::click());
+    if press.hovered() {
+        painter.rect_filled(go, 10.0, t.row_hover);
+    }
+    painter.rect_stroke(go, 10.0, egui::Stroke::new(1.0, outline), egui::StrokeKind::Inside);
+    text_on_baseline(&painter, go.center().x, go.min.y + 30.0, true, label, 14.0, t.text);
+    let enabled = ui.is_enabled();
+    press.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, format!("{label} the welcome notebook")));
+    if press.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        acts.push(Act::AddWelcome);
     }
 }
 

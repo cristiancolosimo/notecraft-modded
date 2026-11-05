@@ -2842,6 +2842,31 @@ fn the_file_screen_is_the_navigation_and_the_notebooks_as_cards() {
     assert_eq!(h.query_all_by_label("Info").count(), 0, "Back leaves the File screen");
 }
 
+/// The New page, to the design: a named, coloured notebook is made and opened from it.
+#[test]
+fn the_new_page_makes_a_named_coloured_notebook() {
+    let (_t, mut app, s) = sample_app("ui-new-page");
+    app.open_path(&s.md_page.to_string_lossy());
+    app.open_backstage_page("New");
+    let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 800.0));
+    settle(&mut h);
+    review(&mut h, "new-page");
+    for entry in ["Create notebook", "Blue", "No colour"] {
+        assert!(h.query_all_by_label(entry).count() >= 1, "{entry} is on the New page");
+    }
+    h.get_by_label("Blue").click();
+    // The name field is the last text field: the search box in the header comes before it.
+    let name = h.get_all_by_role(egui::accesskit::Role::TextInput).last().expect("the name field");
+    name.click();
+    name.type_text("Fresh ideas");
+    settle(&mut h);
+    h.get_by_label("Create notebook").click();
+    settle(&mut h);
+    let tree = h.state().session().tree();
+    let made = tree.iter().find(|n| n.info.title == "Fresh ideas").expect("the notebook was made");
+    assert_eq!(made.info.color, Some(notecraft_model::NodeColor::Blue));
+}
+
 /// The Home tab, drawn to the design: its controls are there and the styles, marks and lists act on the page.
 #[test]
 fn the_home_tab_has_its_groups_and_its_controls_work() {

@@ -2208,6 +2208,16 @@ impl NoteCraftApp {
                     self.backstage = None;
                     self.dialog = Some(Dialog::NewNotebook { name: String::new(), format: None });
                 }
+                backstage::Act::CreateNotebook(name, colour) => {
+                    if let Some(Output::Path(dir)) = self.run("notebook.create", &params(&[("name", name.as_str())])) {
+                        if let Some(c) = colour {
+                            self.run("node.color", &params(&[("path", &path_str(&dir)), ("color", c.id())]));
+                        }
+                        self.session.refresh();
+                        self.say("Notebook created");
+                        self.open_notebook_from_path(&dir);
+                    }
+                }
                 backstage::Act::OpenFolder(p) => self.reveal(&p),
                 backstage::Act::ChooseFolder => self.choose_notebooks_folder(),
                 backstage::Act::ImportNotebookFolder => self.import_notebook_folder(),
