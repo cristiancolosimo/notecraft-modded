@@ -2836,10 +2836,24 @@ fn the_file_screen_is_the_navigation_and_the_notebooks_as_cards() {
     }
     h.get_by_label("Options").click();
     settle(&mut h);
-    assert!(h.query_all_by_label_contains("Toolbar layout").count() >= 1, "Options shows its page");
+    review(&mut h, "options-page");
+    assert!(h.query_all_by_label("Ribbon").count() >= 1, "Options shows its page");
     h.get_by_label("Back to notes").click();
     settle(&mut h);
     assert_eq!(h.query_all_by_label("Info").count(), 0, "Back leaves the File screen");
+}
+
+/// On Info, the New notebook button leads to the New page.
+#[test]
+fn the_new_notebook_button_on_info_opens_the_new_page() {
+    let (_t, mut app, s) = sample_app("ui-info-new");
+    app.open_path(&s.md_page.to_string_lossy());
+    app.open_backstage_page("Info");
+    let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 800.0));
+    settle(&mut h);
+    h.get_by_label("New notebook").click();
+    settle(&mut h);
+    assert!(h.query_all_by_label("Create notebook").count() >= 1, "the New page is shown");
 }
 
 /// The New page, to the design: a named, coloured notebook is made and opened from it.
@@ -5332,11 +5346,11 @@ fn the_performance_counter_is_switched_in_options_and_remembered() {
     settle(&mut h);
     h.get_by_label("Options").click();
     settle(&mut h);
-    h.get_by_label("Show the performance counter").click();
+    h.get_by_label("Performance counter").click();
     settle(&mut h);
     let saved = std::fs::read_to_string(&settings).unwrap_or_default();
     assert!(saved.contains("show_perf") && saved.contains("true"), "the choice is written: {saved}");
-    h.get_by_label("Show the performance counter").click();
+    h.get_by_label("Performance counter").click();
     settle(&mut h);
     let saved = std::fs::read_to_string(&settings).unwrap_or_default();
     assert!(saved.contains("show_perf = \"false\""), "and the choice to turn it off: {saved}");
@@ -5354,8 +5368,7 @@ fn the_frame_rate_cap_is_chosen_in_options_and_remembered() {
     settle(&mut h);
     h.get_by_label("Options").click();
     settle(&mut h);
-    // The second drop-down on the page (the first is the telemetry level).
-    h.query_all_by_role(egui::accesskit::Role::ComboBox).nth(1).expect("the frame rate drop-down").click();
+    h.get_by_label_contains("Frame rate limit").click();
     settle(&mut h);
     h.get_by_label("45 fps").click();
     settle(&mut h);
