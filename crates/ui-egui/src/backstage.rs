@@ -296,45 +296,171 @@ fn info_page(ui: &mut Ui, notebooks: &[Node], folder: &str, show_path: &dyn Fn(&
     });
 }
 
-/// Sync: the notebooks folder kept in a Git repository on a server.
+/// Sync, to a drawn design: the repository form, the switch for syncing by itself, the buttons, and on
+/// the right how it works.
 fn sync_page(ui: &mut Ui, sync: &mut crate::syncing::Syncing, t: &Tokens, acts: &mut Vec<Act>) {
-    heading(ui, "Sync with a Git server", t);
-    ui.label(
-        egui::RichText::new(
-            "The notebooks folder is kept in a Git repository. Use a GitHub address with a personal access token (the username is your GitHub name), or any Git server that takes a username and a token over HTTPS. Nothing is sent until you turn this on.",
-        )
-        .color(t.muted),
-    );
-    ui.add_space(8.0);
-    egui::Grid::new("sync-form").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-        ui.label("Repository address");
-        ui.add(egui::TextEdit::singleline(&mut sync.form.url).hint_text("https://github.com/you/notes.git").desired_width(420.0));
-        ui.end_row();
-        ui.label("Username");
-        ui.add(egui::TextEdit::singleline(&mut sync.form.username).desired_width(420.0));
-        ui.end_row();
-        ui.label("Token");
-        ui.add(egui::TextEdit::singleline(&mut sync.form.token).password(true).hint_text("personal access token").desired_width(420.0));
-        ui.end_row();
-        ui.label("Minutes between syncs");
-        ui.add(egui::TextEdit::singleline(&mut sync.form.minutes).desired_width(80.0));
-        ui.end_row();
-    });
-    ui.add_space(6.0);
-    ui.checkbox(&mut sync.form.enabled, "Sync by itself while NoteCraft is open and the server can be reached");
-    ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        if open_action(ui, "Save", 110.0, 32.0, t, false).clicked() {
-            acts.push(Act::SyncSave(false));
+    use crate::svgicon::{Prim, paint};
+    use crate::viewtab::text_on_baseline;
+    const EYE: [Prim; 2] = [Prim::Path("M2 12A10.64 10.64 0 0 1 22 12A10.64 10.64 0 0 1 2 12Z"), Prim::Circle(12.0, 12.0, 3.0)];
+    const SYNC: [Prim; 1] = [Prim::Path("M20 11a8 8 0 00-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0014.3 4.9L20 16M20 20v-4h-4")];
+    let ink = egui::Color32::from_rgb(26, 16, 48);
+    let line = crate::theme::mix(t.faint, t.muted, 0.7);
+    let dim = crate::theme::mix(t.panel, t.muted, 0.6);
+    let field_fill = crate::theme::mix(t.editor, egui::Color32::BLACK, 0.2);
+    let pill_fill = crate::theme::mix(t.panel, t.muted, 0.2);
+    let width = ui.available_width();
+    let form_width = width.min(596.0);
+    let painter = ui.painter().clone();
+    let complete = ![&sync.form.url, &sync.form.username, &sync.form.token].iter().any(|v| v.trim().is_empty());
+    let busy = sync.busy();
+    // The title, and where the sync stands.
+    let (head, _) = ui.allocate_exact_size(vec2(width, 100.0), Sense::hover());
+    let title = text_on_baseline(&painter, head.min.x, head.min.y + 75.0, false, "Git sync", 28.0, t.text);
+    let (state, dot) = if busy {
+        ("Syncing", Some(t.accent))
+    } else if sync.failed {
+        ("Failed", Some(t.warn))
+    } else if complete {
+        ("Configured", Some(egui::Color32::from_rgb(0x6c, 0xd0, 0x8a)))
+    } else {
+        ("Not configured", None)
+    };
+    let words = painter.layout_no_wrap(state.into(), egui::FontId::proportional(12.0), t.muted).size().x;
+    let pill = egui::Rect::from_min_size(egui::pos2(head.min.x + title + 14.0, head.min.y + 46.0), vec2(words + 34.0, 24.0));
+    painter.rect_filled(pill, 12.0, pill_fill);
+    let at = egui::pos2(pill.min.x + 14.0, pill.center().y);
+    match dot {
+        Some(c) => painter.circle_filled(at, 4.0, c),
+        None => painter.circle_stroke(at, 3.5, egui::Stroke::new(1.0, t.muted)),
+    };
+    text_on_baseline(&painter, pill.min.x + 24.0, pill.min.y + 19.0, false, state, 12.0, t.muted);
+    // The form's card.
+    let top = ui.cursor().min;
+    let (card, _) = ui.allocate_exact_size(vec2(form_width, 402.0), Sense::hover());
+    painter.rect_filled(card, 16.0, t.panel);
+    painter.rect_stroke(card, 16.0, egui::Stroke::new(1.0, t.faint), egui::StrokeKind::Inside);
+    let x = card.min.x + 25.0;
+    let inner = form_width - 50.0;
+    text_on_baseline(&painter, x, card.min.y + 45.5, false, "Repository", 16.0, t.text);
+    let shown_id = ui.id().with("sync-token-shown");
+    let mut shown: bool = ui.data_mut(|d| d.get_temp(shown_id).unwrap_or(false));
+    let group = |ui: &mut Ui, y: f32, label: &str, hint: &str, value: &mut String, secret: bool, shown: &mut bool| {
+        text_on_baseline(&painter, x, card.min.y + y + 33.0, false, label, 14.0, t.text);
+        let field = egui::Rect::from_min_size(egui::pos2(x, card.min.y + y + 41.0), vec2(inner, 44.0));
+        painter.rect_filled(field, 10.0, field_fill);
+        let room = field.shrink2(vec2(13.0, 10.0));
+        let room = if secret { egui::Rect::from_min_max(room.min, egui::pos2(room.max.x - 34.0, room.max.y)) } else { room };
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(room));
+        let edit = child.add(
+            egui::TextEdit::singleline(value)
+                .frame(egui::Frame::NONE)
+                .desired_width(f32::INFINITY)
+                .password(secret && !*shown)
+                .font(egui::FontId::proportional(15.0))
+                .text_color(t.text),
+        );
+        edit.widget_info({
+            let (enabled, said) = (true, label.to_string());
+            move || egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, enabled, said.clone())
+        });
+        let focus = edit.has_focus();
+        painter.rect_stroke(
+            field,
+            10.0,
+            egui::Stroke::new(if focus { 2.0 } else { 1.0 }, if focus { t.accent } else { line }),
+            egui::StrokeKind::Inside,
+        );
+        if secret {
+            let eye = egui::Rect::from_min_size(egui::pos2(field.max.x - 36.0, field.min.y + 13.0), vec2(18.0, 18.0));
+            let press = ui.interact(eye.expand(6.0), ui.id().with("sync-eye"), Sense::click());
+            paint(&painter, eye.min, 18.0, &EYE, if *shown { t.accent } else { t.text });
+            let (enabled, said) = (ui.is_enabled(), if *shown { "Hide the token" } else { "Show the token" });
+            press.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, said));
+            if press.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                *shown = !*shown;
+            }
         }
-        if open_action(ui, if sync.busy() { "Syncing..." } else { "Sync now" }, 150.0, 32.0, t, true).clicked() && !sync.busy() {
-            acts.push(Act::SyncSave(true));
-        }
-    });
-    ui.add_space(8.0);
-    if !sync.status.is_empty() {
-        ui.label(egui::RichText::new(&sync.status).color(if sync.failed { egui::Color32::from_rgb(0xe0, 0x5a, 0x4f) } else { t.muted }));
+        text_on_baseline(&painter, x, card.min.y + y + 33.0 + 73.0, false, hint, 12.0, t.muted);
+    };
+    group(ui, 50.0, "Address", "GitHub or any Git server that takes a username and a token over HTTPS.", &mut sync.form.url, false, &mut shown);
+    group(ui, 160.0, "Username", "On GitHub it is your username.", &mut sync.form.username, false, &mut shown);
+    group(ui, 270.0, "Access token", "Kept in a file of its own, not with the settings.", &mut sync.form.token, true, &mut shown);
+    ui.data_mut(|d| d.insert_temp(shown_id, shown));
+    // The switch, and the time between syncs.
+    ui.add_space(16.0);
+    let (auto, _) = ui.allocate_exact_size(vec2(form_width, 136.0), Sense::hover());
+    painter.rect_filled(auto, 16.0, t.panel);
+    painter.rect_stroke(auto, 16.0, egui::Stroke::new(1.0, t.faint), egui::StrokeKind::Inside);
+    text_on_baseline(&painter, x, auto.min.y + 41.5, false, "Automatic sync", 16.0, t.text);
+    text_on_baseline(&painter, x, auto.min.y + 60.0, false, "While NoteCraft is open and the server can be reached.", 12.0, t.muted);
+    let on = sync.form.enabled;
+    let switch = egui::Rect::from_min_size(egui::pos2(auto.max.x - 25.0 - 48.0, auto.min.y + 27.0), vec2(48.0, 28.0));
+    let flip = ui.interact(switch, ui.id().with("sync-switch"), Sense::click());
+    painter.rect_filled(switch, 14.0, if on { t.accent } else { pill_fill });
+    if !on {
+        painter.rect_stroke(switch, 14.0, egui::Stroke::new(1.0, line), egui::StrokeKind::Inside);
     }
+    let knob = egui::pos2(if on { switch.max.x - 14.0 } else { switch.min.x + 14.0 }, switch.center().y);
+    painter.circle_filled(knob, 10.0, if on { ink } else { t.muted });
+    let enabled = ui.is_enabled();
+    flip.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, on, "Automatic sync"));
+    if flip.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        sync.form.enabled = !on;
+    }
+    let every = if on { t.text } else { dim };
+    let every_words = text_on_baseline(&painter, x, auto.min.y + 103.0, false, "Every", 14.0, every);
+    let box_ = egui::Rect::from_min_size(egui::pos2(x + every_words + 10.0, auto.min.y + 75.0), vec2(72.0, 40.0));
+    painter.rect_filled(box_, 10.0, field_fill);
+    painter.rect_stroke(box_, 10.0, egui::Stroke::new(1.0, if on { line } else { t.faint }), egui::StrokeKind::Inside);
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(box_.shrink2(vec2(14.0, 8.0))));
+    child.add_enabled(
+        on,
+        egui::TextEdit::singleline(&mut sync.form.minutes)
+            .frame(egui::Frame::NONE)
+            .desired_width(f32::INFINITY)
+            .font(egui::FontId::proportional(14.0))
+            .text_color(every),
+    );
+    text_on_baseline(&painter, box_.max.x + 10.0, auto.min.y + 103.0, false, "minutes", 14.0, every);
+    // Save, sync now, and what is missing or what happened last.
+    ui.add_space(16.0);
+    let (row, _) = ui.allocate_exact_size(vec2(form_width, 44.0), Sense::hover());
+    let save_words = painter.layout_no_wrap("Save".into(), egui::FontId::proportional(14.0), ink).size().x;
+    let save = egui::Rect::from_min_size(row.min, vec2(save_words + 32.0, 44.0));
+    let press = ui.interact(save, ui.id().with("sync-save"), Sense::click());
+    painter.rect_filled(save, 10.0, if press.hovered() { crate::theme::mix(t.accent, egui::Color32::WHITE, 0.12) } else { t.accent });
+    text_on_baseline(&painter, save.min.x + 16.0, save.min.y + 30.0, false, "Save", 14.0, ink);
+    let enabled = ui.is_enabled();
+    press.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "Save"));
+    if press.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        acts.push(Act::SyncSave(false));
+    }
+    let label = if busy { "Syncing..." } else { "Sync now" };
+    let now_words = painter.layout_no_wrap(label.into(), egui::FontId::proportional(14.0), t.text).size().x;
+    let now = egui::Rect::from_min_size(egui::pos2(save.max.x + 12.0, row.min.y), vec2(now_words + 60.0, 44.0));
+    let ready = complete && !busy;
+    let press = ui.interact(now, ui.id().with("sync-now"), if ready { Sense::click() } else { Sense::hover() });
+    if press.hovered() && ready {
+        painter.rect_filled(now, 10.0, t.row_hover);
+    }
+    painter.rect_stroke(now, 10.0, egui::Stroke::new(1.0, t.faint), egui::StrokeKind::Inside);
+    let ink_now = if ready { t.text } else { dim };
+    paint(&painter, egui::pos2(now.min.x + 17.0, now.min.y + 13.0), 18.0, &SYNC, ink_now);
+    text_on_baseline(&painter, now.min.x + 43.0, now.min.y + 30.0, false, label, 14.0, ink_now);
+    let enabled = ready && ui.is_enabled();
+    press.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "Sync now"));
+    if press.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && ready {
+        acts.push(Act::SyncSave(true));
+    }
+    let note = if !sync.status.is_empty() {
+        sync.status.clone()
+    } else if !complete {
+        "Fill in the address, the username and the token to sync.".to_string()
+    } else {
+        String::new()
+    };
+    let colour = if sync.failed && !sync.status.is_empty() { t.warn } else { t.muted };
+    text_on_baseline(&painter, now.max.x + 12.0, row.min.y + 29.0, false, &note, 12.0, colour);
     // What the sync is doing now, or did last: a bar for the step, how long it has been going, and its log.
     if let Ok(live) = sync.live.lock()
         && !live.log.is_empty()
@@ -360,14 +486,37 @@ fn sync_page(ui: &mut Ui, sync: &mut crate::syncing::Syncing, t: &Tokens, acts: 
             });
         });
     }
-    ui.add_space(8.0);
-    ui.label(
-        egui::RichText::new(
-            "If the same file was changed on two devices, nothing is lost: this device keeps its version and the other one is saved beside it as name.conflict-xxxxxxx. The token is kept in its own file next to the settings, not in the settings file.",
-        )
-        .size(11.5)
-        .color(t.muted),
-    );
+    // How it works, to the right of the form when there is room for it.
+    if width >= 860.0 {
+        let side = width - 620.0;
+        let mut y = top.y + 22.0;
+        let mut block = |head: &str, parts: &[(&str, bool)]| {
+            text_on_baseline(&painter, top.x + 620.0, y, false, head, 14.0, t.text);
+            let mut job = egui::text::LayoutJob::default();
+            job.wrap.max_width = side;
+            for (text, code) in parts {
+                let font = if *code { egui::FontId::monospace(13.0) } else { egui::FontId::proportional(13.0) };
+                job.append(
+                    text,
+                    0.0,
+                    egui::TextFormat { font_id: font, color: if *code { t.text } else { t.muted }, line_height: Some(19.0), ..Default::default() },
+                );
+            }
+            let galley = painter.layout_job(job);
+            let height = galley.size().y;
+            painter.galley(egui::pos2(top.x + 620.0, y + 11.0), galley, t.muted);
+            y += 11.0 + height + 22.0;
+        };
+        block("How it works", &[("The notebooks folder is a Git repository. Nothing is sent until you save these details.", false)]);
+        block(
+            "If you change the same file on two devices",
+            &[
+                ("Nothing is lost: this device keeps its version and the other one is saved beside it as ", false),
+                ("name.conflict-xxxxxxx", true),
+                (".", false),
+            ],
+        );
+    }
 }
 
 /// Export: each notebook as one ZIP of its folder.

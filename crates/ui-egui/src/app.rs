@@ -791,6 +791,11 @@ impl NoteCraftApp {
         }
     }
 
+    /// The Git sync's form and state.
+    pub fn sync(&self) -> &crate::syncing::Syncing {
+        &self.sync
+    }
+
     pub fn session(&self) -> &Session {
         &self.session
     }

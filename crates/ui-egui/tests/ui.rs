@@ -2867,6 +2867,29 @@ fn the_new_page_makes_a_named_coloured_notebook() {
     assert_eq!(made.info.color, Some(notecraft_model::NodeColor::Blue));
 }
 
+/// The Sync page, to the design: the form takes what is typed, and Sync now waits for all three details.
+#[test]
+fn the_sync_page_takes_the_repository_details() {
+    let (_t, mut app, s) = sample_app("ui-sync-page");
+    app.open_path(&s.md_page.to_string_lossy());
+    app.open_backstage_page("Sync");
+    let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 800.0));
+    settle(&mut h);
+    review(&mut h, "sync-page");
+    for entry in ["Address", "Username", "Access token", "Save", "Sync now", "Show the token", "Automatic sync"] {
+        assert!(h.query_all_by_label(entry).count() >= 1, "{entry} is on the Sync page");
+    }
+    let address = h.get_by_label("Address");
+    address.click();
+    address.type_text("https://github.com/you/notes.git");
+    settle(&mut h);
+    h.get_by_label("Automatic sync").click();
+    settle(&mut h);
+    review(&mut h, "sync-page-filled");
+    assert!(h.state().sync().form.enabled, "the switch turns on");
+    assert_eq!(h.state().sync().form.url, "https://github.com/you/notes.git");
+}
+
 /// The Home tab, drawn to the design: its controls are there and the styles, marks and lists act on the page.
 #[test]
 fn the_home_tab_has_its_groups_and_its_controls_work() {
