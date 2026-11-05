@@ -541,7 +541,12 @@ enum Act {
     Reveal(PathBuf),
     /// Put a link to this page on the clipboard, to paste into another page.
     CopyLink(PathBuf),
+    /// Drop a node into a container, before a sibling or last.
+    Place(PathBuf, PathBuf, Option<PathBuf>),
 }
+
+/// A row of the tree on screen: where it is, whether it is a page, and what it says.
+type NavRow = (PathBuf, egui::Rect, bool, String);
 
 pub struct NoteCraftApp {
     session: Session,
@@ -606,6 +611,8 @@ pub struct NoteCraftApp {
     files: Option<std::sync::Arc<dyn crate::filebrowser::FilesAccess>>,
     /// The performance counter at the top right (File, Options).
     show_perf: bool,
+    /// How the pages of a section are listed: manual (and then they can be dragged), name, created or modified.
+    pages_sort: String,
     perf: crate::perf::Perf,
     /// Frames a second the window may draw at most; 0 is no cap.
     fps_limit: u32,
@@ -752,6 +759,10 @@ impl NoteCraftApp {
             media: None,
             files: None,
             show_perf: settings_for_sync.get("show_perf").as_deref() == Some("true"),
+            pages_sort: settings_for_sync
+                .get("pages_sort")
+                .filter(|v| ["name", "created", "modified"].contains(&v.as_str()))
+                .unwrap_or_else(|| "manual".into()),
             perf: crate::perf::Perf::default(),
             fps_limit: settings_for_sync.get("fps_limit").and_then(|v| v.parse().ok()).filter(|n| crate::perf::FPS_LIMITS.contains(n)).unwrap_or(0),
             last_frame: None,
@@ -1586,6 +1597,23 @@ impl NoteCraftApp {
                     });
                 }
             }
+            Act::Place(path, parent, before) => {
+                self.save_now();
+                let open_here = self.editor.as_ref().map(|e| e.dir.clone());
+                let (from, to) = (path_str(&path), path_str(&parent));
+                let before = before.map(|b| path_str(&b)).unwrap_or_default();
+                if let Some(Output::Path(now)) = self.run("node.move", &params(&[("path", &from), ("parent", &to), ("before", &before)])) {
+                    self.session.refresh();
+                    if self.selected.as_deref().is_some_and(|s| s.starts_with(&path)) {
+                        self.selected = self.selected.take().map(|s| now.join(s.strip_prefix(&path).unwrap_or(Path::new(""))));
+                    }
+                    if let Some(dir) = open_here.filter(|d| d.starts_with(&path)) {
+                        let inside = dir.strip_prefix(&path).unwrap_or(Path::new("")).to_path_buf();
+                        self.open_page_inner(&now.join(inside));
+                    }
+                    self.open.insert(parent);
+                }
+            }
             Act::CopyLink(path) => self.copy_link_to(&path),
             Act::Reveal(path) => match open_folder(&path) {
                 Ok(()) => self.say(format!("Opened {}", self.shown(&path))),
@@ -1622,9 +1650,18 @@ impl NoteCraftApp {
         if node.info.kind == NodeKind::Notebook && depth == 0 && ui.cursor().min.y > ui.min_rect().min.y + 1.0 {
             ui.add_space(4.0);
         }
-        let (rect, resp) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+        let drag_on = is_page && ui.ctx().data(|d| d.get_temp::<bool>(Id::new("nav-drag-on"))).unwrap_or(false);
+        let (rect, resp) = ui.allocate_exact_size(vec2(width, height), if drag_on { Sense::click_and_drag() } else { Sense::click() });
         let painter = ui.painter_at(rect);
         let t = &self.tokens;
+        // The rows on screen, for a page being dragged to find where it would land.
+        ui.ctx().data_mut(|d| {
+            d.get_temp_mut_or_default::<Vec<NavRow>>(Id::new("nav-rows")).push((node.path.clone(), rect, is_page, node.info.title.clone()))
+        });
+        if drag_on && resp.drag_started() {
+            ui.ctx().data_mut(|d| d.insert_temp(Id::new("nav-drag"), Some(node.path.clone())));
+        }
+        let being_dragged = ui.ctx().data(|d| d.get_temp::<Option<PathBuf>>(Id::new("nav-drag"))).flatten().is_some_and(|p| p == node.path);
         if lit {
             painter.rect_filled(rect, 8.0, t.row_selected);
         } else if resp.hovered() {
@@ -1708,6 +1745,9 @@ impl NoteCraftApp {
         }
         if is_page && resp.hovered() {
             painter.text(plus_rect.center(), Align2::CENTER_CENTER, "+", egui::FontId::proportional(16.0), t.strong);
+        }
+        if being_dragged {
+            painter.rect_filled(rect, 8.0, t.panel.gamma_multiply(0.6));
         }
         let enabled = ui.is_enabled();
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &node.info.title));
@@ -4454,6 +4494,9 @@ impl NoteCraftApp {
             ..egui::containers::scroll_area::ScrollSource::default()
         };
         let mut toggle = false;
+        let ctx = ui.ctx().clone();
+        ctx.data_mut(|d| d.insert_temp(Id::new("nav-rows"), Vec::<NavRow>::new()));
+        ctx.data_mut(|d| d.insert_temp(Id::new("nav-drag-on"), false));
         if self.organisers {
             egui::Panel::left("organisers").resizable(true).default_size(260.0).size_range(160.0..=520.0).show(ui, |ui| {
                 // The three-bar button sits at the top left of the notebooks, where
@@ -4488,6 +4531,7 @@ impl NoteCraftApp {
         }
         let section = self.current_section(self.session.tree()).map(|n| (n.path.clone(), n.info.title.clone(), n.children.clone()));
         egui::Panel::left("pages").resizable(true).default_size(230.0).size_range(150.0..=520.0).show(ui, |ui| {
+            ctx.data_mut(|d| d.insert_temp(Id::new("nav-pages-rect"), ui.max_rect()));
             ui.add_space(4.0);
             match &section {
                 Some((path, title, pages)) => {
@@ -4504,12 +4548,41 @@ impl NoteCraftApp {
                         toggle |= Self::bars_button_at(&mut inner).clicked();
                         x = head.min.x + 30.0;
                     }
-                    let clip = painter.with_clip_rect(egui::Rect::from_min_max(head.min, egui::pos2(head.max.x - 8.0, head.max.y)));
+                    let clip = painter.with_clip_rect(egui::Rect::from_min_max(head.min, egui::pos2(head.max.x - 40.0, head.max.y)));
                     crate::viewtab::text_on_baseline(&clip, x, head.min.y + 31.0, false, title, 15.0, self.tokens.text);
                     let sub =
                         format!("{}{count} page{}", above.map(|a| format!("{a} \u{b7} ")).unwrap_or_default(), if count == 1 { "" } else { "s" });
                     crate::viewtab::text_on_baseline(&clip, x, head.min.y + 47.0, false, &sub, 12.0, self.tokens.muted);
-                    ui.add_space(0.0);
+                    // Sorting: by hand, which is the order a page can be dragged in, or by what the pages say.
+                    {
+                        use crate::svgicon::{Prim, paint};
+                        const SORT: [Prim; 1] = [Prim::Path("M7 4v16M4 17l3 3 3-3M14 6h6M14 12h4M14 18h2")];
+                        let hit = egui::Rect::from_center_size(egui::pos2(head.max.x - 19.0, head.min.y + 30.0), vec2(26.0, 26.0));
+                        let resp = ui.interact(hit, ui.id().with("pages-sort"), Sense::click());
+                        if resp.hovered() {
+                            painter.rect_filled(hit, 6.0, self.tokens.row_hover);
+                        }
+                        paint(&painter, egui::pos2(hit.center().x - 9.0, hit.center().y - 9.0), 18.0, &SORT, self.tokens.text);
+                        let enabled = ui.is_enabled();
+                        resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "Sort pages"));
+                        let resp = resp.on_hover_text("Sort pages").on_hover_cursor(egui::CursorIcon::PointingHand);
+                        let mut chosen = None;
+                        egui::Popup::menu(&resp).show(|ui| {
+                            ui.set_min_width(170.0);
+                            for (value, label) in
+                                [("manual", "By hand"), ("name", "By name"), ("created", "Newest first"), ("modified", "Last changed")]
+                            {
+                                if ui.selectable_label(self.pages_sort == value, label).clicked() {
+                                    chosen = Some(value);
+                                    ui.close();
+                                }
+                            }
+                        });
+                        if let Some(v) = chosen {
+                            self.pages_sort = v.to_string();
+                            let _ = self.session.settings.set("pages_sort", v);
+                        }
+                    }
                     // The button for a page, as wide as the column.
                     let (btn, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
                     if resp.hovered() {
@@ -4540,7 +4613,10 @@ impl NoteCraftApp {
                     ui.add_space(8.0);
                     egui::ScrollArea::vertical().id_salt("pages").auto_shrink([false, false]).scroll_source(scroll()).show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        let list: Vec<&Node> = pages.iter().filter(|p| p.info.kind == NodeKind::Page).collect();
+                        let mut list: Vec<&Node> = pages.iter().filter(|p| p.info.kind == NodeKind::Page).collect();
+                        Self::sort_pages(&mut list, &self.pages_sort);
+                        // Only a list in the order of the hand can be reordered by it.
+                        ctx.data_mut(|d| d.insert_temp(Id::new("nav-drag-on"), self.pages_sort == "manual"));
                         if list.is_empty() {
                             ui.weak("No pages in this section yet.");
                         }
@@ -4568,6 +4644,92 @@ impl NoteCraftApp {
         });
         if toggle {
             self.organisers = !self.organisers;
+        }
+        let current = section.as_ref().map(|(p, _, _)| p.clone());
+        self.nav_drag(&ctx, current.as_deref(), acts);
+    }
+
+    /// The order the pages of a section are listed in.
+    fn sort_pages(list: &mut Vec<&Node>, how: &str) {
+        let times = |n: &Node| {
+            let meta = notecraft_store::tree::page_file(&n.path).and_then(|(_, f)| std::fs::metadata(f).ok());
+            (meta.as_ref().and_then(|m| m.created().ok()), meta.as_ref().and_then(|m| m.modified().ok()))
+        };
+        match how {
+            "name" => list.sort_by_key(|n| n.info.title.to_lowercase()),
+            "created" => list.sort_by_key(|n| std::cmp::Reverse(times(n).0)),
+            "modified" => list.sort_by_key(|n| std::cmp::Reverse(times(n).1)),
+            _ => {}
+        }
+    }
+
+    /// A page being dragged: the copy that follows the pointer, where it would land, and the move itself when it is let go.
+    fn nav_drag(&mut self, ctx: &Context, section: Option<&Path>, acts: &mut Vec<Act>) {
+        let drag_id = Id::new("nav-drag");
+        let Some(source) = ctx.data(|d| d.get_temp::<Option<PathBuf>>(drag_id)).flatten() else { return };
+        let released = ctx.input(|i| i.pointer.any_released());
+        let cancelled = ctx.input(|i| i.key_pressed(Key::Escape));
+        let finish = |ctx: &Context| ctx.data_mut(|d| d.insert_temp(drag_id, None::<PathBuf>));
+        let Some(pointer) = ctx.pointer_latest_pos() else {
+            finish(ctx);
+            return;
+        };
+        let rows = ctx.data(|d| d.get_temp::<Vec<NavRow>>(Id::new("nav-rows"))).unwrap_or_default();
+        let pages_rect = ctx.data(|d| d.get_temp::<egui::Rect>(Id::new("nav-pages-rect")));
+        let t = self.tokens;
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, Id::new("nav-drag-layer")));
+        // Where it would land: into a section pointed at, else among the pages of this one.
+        let mut drop: Option<(PathBuf, Option<PathBuf>)> = None;
+        if let Some((path, rect, _, _)) = rows.iter().find(|r| !r.2 && r.1.contains(pointer)) {
+            painter.rect_stroke(*rect, 8.0, egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
+            drop = Some((path.clone(), None));
+        } else if pages_rect.is_some_and(|r| r.contains(pointer)) {
+            let pages: Vec<&NavRow> = rows.iter().filter(|r| r.2 && !r.0.starts_with(&source)).collect();
+            let line = |y: f32, x0: f32, x1: f32| {
+                painter.rect_filled(egui::Rect::from_min_max(egui::pos2(x0 + 6.0, y - 1.0), egui::pos2(x1 - 6.0, y + 1.0)), 1.0, t.accent);
+                painter.circle_filled(egui::pos2(x0 + 2.0, y), 5.0, t.panel);
+                painter.circle_stroke(egui::pos2(x0 + 2.0, y), 4.0, egui::Stroke::new(2.0, t.accent));
+            };
+            match pages.iter().find(|r| r.1.center().y > pointer.y) {
+                Some((path, rect, _, _)) => {
+                    line(rect.min.y, rect.min.x, rect.max.x);
+                    if let Some(parent) = path.parent() {
+                        drop = Some((parent.to_path_buf(), Some(path.clone())));
+                    }
+                }
+                None => {
+                    if let (Some(section), Some(r)) = (section, pages_rect) {
+                        let (y, x0, x1) =
+                            pages.last().map_or((r.min.y + 160.0, r.min.x + 8.0, r.max.x - 8.0), |l| (l.1.max.y + 2.0, l.1.min.x, l.1.max.x));
+                        line(y, x0, x1);
+                        drop = Some((section.to_path_buf(), None));
+                    }
+                }
+            }
+        }
+        // The copy that follows the pointer.
+        let title = rows.iter().find(|r| r.0 == source).map(|r| r.3.clone()).unwrap_or_default();
+        let ghost = egui::Rect::from_min_size(pointer + vec2(-20.0, -20.0), vec2(250.0, 40.0));
+        painter.add(egui::Shadow { offset: [0, 6], blur: 18, spread: 0, color: egui::Color32::from_black_alpha(110) }.as_shape(ghost, 8.0));
+        painter.rect_filled(ghost, 8.0, crate::theme::mix(t.panel, t.text, 0.1));
+        crate::svgicon::paint(
+            &painter,
+            ghost.min + vec2(10.0, 12.0),
+            16.0,
+            &[crate::svgicon::Prim::Path("M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z"), crate::svgicon::Prim::Path("M14 3v6h6")],
+            t.muted,
+        );
+        crate::viewtab::text_on_baseline(&painter.with_clip_rect(ghost), ghost.min.x + 36.0, ghost.min.y + 25.0, false, &title, 14.0, t.text);
+        ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+        ctx.request_repaint();
+        if released || cancelled {
+            finish(ctx);
+            if released
+                && !cancelled
+                && let Some((parent, before)) = drop
+            {
+                acts.push(Act::Place(source, parent, before));
+            }
         }
     }
 

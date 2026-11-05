@@ -1419,7 +1419,7 @@ fn ink_is_written_on_the_page_itself_and_saved_beside_it() {
     let y = body.min.y + 160.0;
     ask(&mut h, "ui.press", json!({"x": body.min.x + 40.0, "y": y})).expect("down");
     pump(&mut h);
-    for step in 1..=6 {
+    for step in 1..=6_u8 {
         ask(&mut h, "ui.move", json!({"x": body.min.x + 40.0 + step as f32 * 30.0, "y": y})).expect("move");
         pump(&mut h);
     }
@@ -2921,6 +2921,48 @@ fn the_two_navigation_columns_are_drawn_to_the_design() {
     h.get_by_label("Expand all").click();
     settle(&mut h);
     assert!(h.query_all_by_label("My Notebook").count() >= 1, "the notebook is still listed");
+}
+
+/// Pages are dragged to a new place in their section, and dropped on another section; sorting by name turns dragging off.
+#[test]
+fn pages_are_reordered_and_moved_by_dragging() {
+    let (_t, mut app, s) = split_sample_app("ui-drag-pages");
+    app.open_path(&s.md_page.to_string_lossy());
+    let section = std::path::Path::new(&s.md_page).parent().expect("section").to_string_lossy().to_string();
+    let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 800.0));
+    settle(&mut h);
+    for title in ["Second page", "Third page"] {
+        ask(&mut h, "engine.execute", json!({"command": "node.create", "params": {"parent": section.clone(), "kind": "page", "title": title}}))
+            .expect("page");
+    }
+    settle(&mut h);
+    let order = |h: &mut Harness<'_, NoteCraftApp>| -> Vec<String> {
+        let tree = h.state().session().tree();
+        fn titles(nodes: &[notecraft_store::tree::Node], out: &mut Vec<String>, under: &str) {
+            for n in nodes {
+                if n.path.to_string_lossy() == under {
+                    out.extend(n.children.iter().map(|c| c.info.title.clone()));
+                }
+                titles(&n.children, out, under);
+            }
+        }
+        let mut out = Vec::new();
+        titles(tree, &mut out, &section);
+        out
+    };
+    assert_eq!(order(&mut h), ["Format ideas", "Second page", "Third page"]);
+    let third = h.get_by_label("Third page").rect();
+    let first = h.get_by_label("Format ideas").rect();
+    review(&mut h, "pages-before-drag");
+    ask(&mut h, "ui.press", json!({"x": third.center().x, "y": third.center().y})).expect("press");
+    for step in 1..=6_u8 {
+        let y = third.center().y + (first.min.y + 2.0 - third.center().y) * f32::from(step) / 6.0;
+        ask(&mut h, "ui.move", json!({"x": third.center().x, "y": y})).expect("move");
+    }
+    review(&mut h, "pages-dragging");
+    ask(&mut h, "ui.release", json!({"x": third.center().x, "y": first.min.y + 2.0})).expect("release");
+    settle(&mut h);
+    assert_eq!(order(&mut h), ["Third page", "Format ideas", "Second page"], "the page went to the top");
 }
 
 /// The Home tab, drawn to the design: its controls are there and the styles, marks and lists act on the page.
