@@ -115,9 +115,21 @@ pub fn show(
                 }
                 ui.add_space(18.0);
                 match page {
-                    "New" => new_page(ui, notebooks, notebooks_folder, show_path, t, &mut acts),
+                    "New" => {
+                        egui::ScrollArea::vertical()
+                            .id_salt("backstage-new")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| new_page(ui, notebooks, notebooks_folder, show_path, t, &mut acts))
+                            .inner
+                    }
                     "Open" => open_page(ui, recent, notebooks_folder, show_path, t, &mut acts),
-                    "Sync" => sync_page(ui, sync, t, &mut acts),
+                    "Sync" => {
+                        egui::ScrollArea::vertical()
+                            .id_salt("backstage-sync")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| sync_page(ui, sync, t, &mut acts))
+                            .inner
+                    }
                     "Export" => export_page(ui, notebooks, show_path, t, &mut acts),
                     _ => options_page(ui, telemetry_root, telemetry_level, session_id, show_perf, fps_limit, compact_ui, recycle_days, t, &mut acts),
                 }

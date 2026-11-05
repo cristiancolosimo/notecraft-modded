@@ -2905,6 +2905,22 @@ fn the_sync_page_takes_the_repository_details() {
     assert_eq!(h.state().sync().form.url, "https://github.com/you/notes.git");
 }
 
+/// On a short window the Sync page scrolls, so the buttons at its foot can be reached.
+#[test]
+fn the_sync_page_scrolls_on_a_short_window() {
+    let (_t, mut app, s) = sample_app("ui-sync-scroll");
+    app.open_path(&s.md_page.to_string_lossy());
+    app.open_backstage_page("Sync");
+    let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 420.0));
+    settle(&mut h);
+    let y = |h: &egui_kittest::Harness<'_, _>| h.get_by_label("Address").rect().min.y;
+    let before = y(&h);
+    ask(&mut h, "ui.move", json!({"x": 700, "y": 250})).expect("pointer onto the page");
+    ask(&mut h, "ui.scroll", json!({"y": -200})).expect("scroll the page");
+    settle(&mut h);
+    assert!(y(&h) < before - 50.0, "the form moved up: {before} then {}", y(&h));
+}
+
 /// The notebooks column and the pages column, to the design: both heads, the dashed button and the rows.
 #[test]
 fn the_two_navigation_columns_are_drawn_to_the_design() {
