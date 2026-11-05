@@ -3111,6 +3111,38 @@ fn a_pdf_is_imported_as_pages_to_write_on_and_left_untouched() {
     review(&mut h, "pdf-imported");
 }
 
+/// The file format of a new page is chosen in its window, and the page is written in it.
+#[test]
+fn the_format_of_a_new_page_is_chosen_in_its_window() {
+    let (_t, mut app, s) = split_sample_app("ui-page-format");
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 800.0));
+    settle(&mut h);
+    for (title, choice, want) in [("In HTML", "HTML", "html"), ("In Markdown", "CommonMark + GFM", "cmgfm")] {
+        h.get_by_label("New page").click();
+        settle(&mut h);
+        let field = h.get_all_by_role(egui::accesskit::Role::TextInput).last().expect("the title field");
+        field.type_text(title);
+        h.get_by_label_contains("File format").click();
+        settle(&mut h);
+        review(&mut h, "new-page-format-menu");
+        h.get_all_by_label(choice).last().expect("the menu entry").click();
+        settle(&mut h);
+        h.get_by_label("Create page").click();
+        settle(&mut h);
+        let page = h
+            .state()
+            .session()
+            .tree()
+            .iter()
+            .flat_map(|n| n.children.iter())
+            .flat_map(|n| n.children.iter())
+            .find(|n| n.info.title == title)
+            .map(|n| n.info.format);
+        assert_eq!(page.flatten().map(|f| f.id()), Some(want), "{title}");
+    }
+}
+
 /// The Home tab, drawn to the design: its controls are there and the styles, marks and lists act on the page.
 #[test]
 fn the_home_tab_has_its_groups_and_its_controls_work() {
