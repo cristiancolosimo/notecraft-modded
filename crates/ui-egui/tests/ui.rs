@@ -193,7 +193,8 @@ fn mouse_warning_and_synthetic_ink_mode_cover_the_pressure_ribbon() {
 fn clicking_a_page_opens_it_and_a_container_toggles() {
     let (_t, mut app, _s) = sample_app("ui-click");
     app.expand_all();
-    let mut h = harness(app, LIGHT);
+    // Tall enough for every row of the opened tree.
+    let mut h = sized_harness(app, LIGHT, egui::vec2(1200.0, 1100.0));
     settle(&mut h);
     h.get_by_label("Project X").click();
     settle(&mut h);
@@ -2902,6 +2903,24 @@ fn the_sync_page_takes_the_repository_details() {
     review(&mut h, "sync-page-filled");
     assert!(h.state().sync().form.enabled, "the switch turns on");
     assert_eq!(h.state().sync().form.url, "https://github.com/you/notes.git");
+}
+
+/// The notebooks column and the pages column, to the design: both heads, the dashed button and the rows.
+#[test]
+fn the_two_navigation_columns_are_drawn_to_the_design() {
+    let (_t, mut app, s) = split_sample_app("ui-nav-columns");
+    app.open_path(&s.md_page.to_string_lossy());
+    let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 800.0));
+    settle(&mut h);
+    review(&mut h, "nav-columns");
+    for entry in ["Expand all", "Collapse all", "New notebook", "New page"] {
+        assert!(h.query_all_by_label(entry).count() >= 1, "{entry} is in the columns");
+    }
+    h.get_by_label("Collapse all").click();
+    settle(&mut h);
+    h.get_by_label("Expand all").click();
+    settle(&mut h);
+    assert!(h.query_all_by_label("My Notebook").count() >= 1, "the notebook is still listed");
 }
 
 /// The Home tab, drawn to the design: its controls are there and the styles, marks and lists act on the page.

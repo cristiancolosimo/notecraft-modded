@@ -43,9 +43,6 @@ const SENSITIVITY_KEY: &str = "pen_sensitivity";
 const DEFAULT_SENSITIVITY: u8 = 50;
 const PRESSURE_WARNING_KEY: &str = "pressure_unavailable";
 
-const ROW_HEIGHT: f32 = 24.0;
-const INDENT: f32 = 14.0;
-
 /// Shared title treatment for modal dialogs. Keeping this here makes dialogs use the
 /// same opaque, theme-owned title band instead of inheriting egui's platform-gray title bar.
 /// The saved form of the window's place: `x,y,width,height,maximised`.
@@ -1607,71 +1604,109 @@ impl NoteCraftApp {
     /// One row of the tree. With `pages` false the pages are left out, which is what the
     /// organisers column shows: notebooks, section groups and sections only.
     fn draw_row(&self, ui: &mut Ui, node: &Node, depth: usize, acts: &mut Vec<Act>, pages: bool) {
+        use crate::svgicon::{Prim, paint};
+        const DOWN: [Prim; 1] = [Prim::Path("M6 9l6 6 6-6")];
+        const RIGHT: [Prim; 1] = [Prim::Path("M9 6l6 6-6 6")];
+        const FOLDER: [Prim; 1] = [Prim::Path("M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z")];
+        const PAGE: [Prim; 2] = [Prim::Path("M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z"), Prim::Path("M14 3v6h6")];
         let has_kids = if pages { !node.children.is_empty() } else { node.children.iter().any(|c| c.info.kind != NodeKind::Page) };
         let open = self.open.contains(&node.path);
+        let is_page = node.info.kind == NodeKind::Page;
         let selected = self.selected.as_deref() == Some(node.path.as_path());
+        // A section stays lit while one of its pages is the one open.
+        let lit = selected || (node.info.kind == NodeKind::Section && self.selected.as_deref().is_some_and(|s| s.starts_with(&node.path)));
         let width = ui.available_width();
-        let (rect, resp) = ui.allocate_exact_size(vec2(width, ROW_HEIGHT), Sense::click());
+        // The rows of a tree stand 40 apart and those of pages 42, a page's strip between two of them being 4.
+        let height = if is_page { 38.0 } else { 40.0 };
+        // A notebook after another one stands a little apart from it.
+        if node.info.kind == NodeKind::Notebook && depth == 0 && ui.cursor().min.y > ui.min_rect().min.y + 1.0 {
+            ui.add_space(4.0);
+        }
+        let (rect, resp) = ui.allocate_exact_size(vec2(width, height), Sense::click());
         let painter = ui.painter_at(rect);
         let t = &self.tokens;
-        if selected {
-            painter.rect_filled(rect, 4.0, t.row_selected);
+        if lit {
+            painter.rect_filled(rect, 8.0, t.row_selected);
         } else if resp.hovered() {
-            painter.rect_filled(rect, 4.0, t.row_hover);
+            painter.rect_filled(rect, 8.0, t.row_hover);
         }
-        let x0 = rect.min.x + depth as f32 * INDENT + 2.0;
         let cy = rect.center().y;
-        let chevron_rect = egui::Rect::from_min_size(egui::pos2(x0, rect.min.y), vec2(16.0, ROW_HEIGHT));
-        if has_kids {
-            let c = chevron_rect.center();
-            let stroke = egui::Stroke::new(1.5, t.muted);
-            let pts = if open {
-                [egui::pos2(c.x - 3.5, c.y - 1.5), egui::pos2(c.x, c.y + 2.5), egui::pos2(c.x + 3.5, c.y - 1.5)]
-            } else {
-                [egui::pos2(c.x - 1.5, c.y - 3.5), egui::pos2(c.x + 2.5, c.y), egui::pos2(c.x - 1.5, c.y + 3.5)]
-            };
-            painter.line_segment([pts[0], pts[1]], stroke);
-            painter.line_segment([pts[1], pts[2]], stroke);
-        }
-        let (icon, default_color) = match node.info.kind {
-            NodeKind::Notebook => (Icon::Notebook, t.notebook),
-            NodeKind::SectionGroup => (if open && has_kids { Icon::SectionGroupOpen } else { Icon::SectionGroup }, t.group),
-            NodeKind::Section => (Icon::Section, t.section),
-            NodeKind::Page => (if has_kids && !open { Icon::PageStack } else { Icon::Page }, t.page),
-        };
+        let d = depth as f32;
         // The colour the user gave this notebook or section, kept readable on the panel.
         let color = match node.info.color {
             Some(c) => {
                 let (r, g, b) = c.rgb(self.effective_mode.is_dark());
                 crate::theme::readable_on(egui::Color32::from_rgb(r, g, b), t.panel, 3.0, self.effective_mode.is_dark())
             }
-            None => default_color,
+            None => match node.info.kind {
+                NodeKind::Notebook => t.notebook,
+                NodeKind::SectionGroup => t.group,
+                NodeKind::Section => t.section,
+                NodeKind::Page => t.page,
+            },
         };
-        // The coloured edge of the row, like the edge of a OneNote tab.
-        if node.info.color.is_some() {
-            let edge = egui::Rect::from_min_size(egui::pos2(rect.min.x, rect.min.y + 2.0), vec2(3.0, ROW_HEIGHT - 4.0));
-            painter.rect_filled(edge, 1.5, color);
+        // Where the chevron sits, and so where it is pressed.
+        let chevron_x = if is_page { rect.min.x + 1.0 } else { rect.min.x + 8.0 + 16.0 * d };
+        let chevron_rect = egui::Rect::from_min_size(egui::pos2(chevron_x - 4.0, rect.min.y), vec2(if is_page { 10.0 } else { 20.0 }, height));
+        if has_kids {
+            let size = if is_page { 10.0 } else { 16.0 };
+            let at = egui::pos2(chevron_x, cy - size / 2.0);
+            paint(&painter, at, size, if open { &DOWN } else { &RIGHT }, if is_page { t.muted } else { t.text });
         }
-        let icon_rect = egui::Rect::from_min_size(egui::pos2(x0 + 18.0, cy - 8.5), vec2(17.0, 17.0));
-        icons::paint(&painter, icon_rect, icon, color);
-        let text_pos = egui::pos2(x0 + 40.0, cy);
-        let text_color = if selected { t.strong } else { ui.style().visuals.text_color() };
+        let text_x;
+        let text_color;
+        let mut text_size = 14.0;
+        match node.info.kind {
+            NodeKind::Notebook => {
+                let chip = egui::Rect::from_min_size(egui::pos2(chevron_x + 24.0, cy - 7.0), vec2(10.0, 14.0));
+                painter.rect_filled(chip, 2.0, color);
+                text_x = chevron_x + 42.0;
+                text_color = if lit { t.accent } else { t.text };
+            }
+            NodeKind::SectionGroup => {
+                paint(&painter, egui::pos2(chevron_x + 24.0, cy - 8.0), 16.0, &FOLDER, t.muted);
+                text_x = chevron_x + 48.0;
+                text_color = if lit { t.accent } else { t.text };
+            }
+            NodeKind::Section => {
+                let bar = egui::Rect::from_min_size(egui::pos2(rect.min.x + 8.0 + 24.0 * d, cy - 7.0), vec2(4.0, 14.0));
+                painter.rect_filled(bar, 2.0, color);
+                text_x = bar.min.x + 12.0;
+                text_color = if lit { t.accent } else { t.muted };
+            }
+            NodeKind::Page => {
+                let x = rect.min.x + 10.0 + 16.0 * d;
+                paint(&painter, egui::pos2(x, cy - 8.0), 16.0, &PAGE, if lit { t.accent } else { t.muted });
+                text_x = x + 26.0;
+                text_color = if lit { t.accent } else { t.text };
+                text_size = 14.0;
+            }
+        }
         // Pages reserve room for their format label and add-page affordance. Organiser rows
         // do not, so notebook, group and section names should run almost to the pane border.
-        let trailing = if node.info.kind == NodeKind::Page { 52.0 } else { 8.0 };
+        let count =
+            (lit && node.info.kind == NodeKind::Section).then(|| node.children.iter().filter(|c| c.info.kind == NodeKind::Page).count().to_string());
+        let trailing = if is_page {
+            52.0
+        } else if count.is_some() {
+            40.0
+        } else {
+            10.0
+        };
         let text_clip = egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x - trailing, rect.max.y));
         // The tree is on screen all the time, so this is the most visible place the words
         // of an Arabic name would come out backwards. Each row's name decides its own
         // direction; the row keeps its place and its clip either way.
         let clipped = painter.with_clip_rect(text_clip);
-        crate::bidi::line_at(ui, &clipped, text_pos, Align2::LEFT_CENTER, &node.info.title, 14.0, text_color, None);
-        let plus_rect = egui::Rect::from_min_size(egui::pos2(rect.max.x - 24.0, rect.min.y + 2.0), vec2(20.0, ROW_HEIGHT - 4.0));
-        if node.info.kind == NodeKind::Page
-            && let Some(f) = node.info.format
-        {
+        crate::bidi::line_at(ui, &clipped, egui::pos2(text_x, cy), Align2::LEFT_CENTER, &node.info.title, text_size, text_color, None);
+        if let Some(n) = count {
+            painter.text(egui::pos2(rect.max.x - 12.0, cy), Align2::RIGHT_CENTER, n, egui::FontId::proportional(12.0), t.accent);
+        }
+        let plus_rect = egui::Rect::from_min_size(egui::pos2(rect.max.x - 24.0, rect.min.y + 2.0), vec2(20.0, height - 4.0));
+        if is_page && let Some(f) = node.info.format {
             painter.text(egui::pos2(rect.max.x - 30.0, cy), Align2::RIGHT_CENTER, f.short(), egui::FontId::proportional(10.5), t.muted);
         }
-        if resp.hovered() {
+        if is_page && resp.hovered() {
             painter.text(plus_rect.center(), Align2::CENTER_CENTER, "+", egui::FontId::proportional(16.0), t.strong);
         }
         let enabled = ui.is_enabled();
@@ -1777,6 +1812,19 @@ impl NoteCraftApp {
                 self.draw_row(ui, c, depth + 1, acts, pages);
             }
         }
+    }
+
+    /// The name of the notebook or group that holds `path`.
+    fn parent_title(nodes: &[Node], path: &Path) -> Option<String> {
+        for n in nodes {
+            if n.children.iter().any(|c| c.path == path) {
+                return Some(n.info.title.clone());
+            }
+            if let Some(found) = Self::parent_title(&n.children, path) {
+                return Some(found);
+            }
+        }
+        None
     }
 
     /// The first section anywhere in the tree, for a window that has nothing selected.
@@ -4186,33 +4234,26 @@ impl NoteCraftApp {
             return;
         }
         let mut split_now = false;
-        egui::Panel::left("tree").resizable(true).default_size(300.0).size_range(200.0..=700.0).show(ui, |ui| {
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                // In the one-tree layout the same button splits the panel and hides the
-                // notebooks, which is what pressing it in OneNote does.
-                split_now = Self::bars_button_at(ui).clicked();
-                ui.label(egui::RichText::new("NOTEBOOKS").small().color(self.tokens.muted));
-            });
-            ui.horizontal_wrapped(|ui| {
-                if ui.small_button("New notebook").clicked() {
-                    self.dialog = Some(Dialog::NewNotebook { name: String::new(), format: None });
-                }
-                if ui.small_button("Expand all").on_hover_text("Open every level").clicked() {
-                    self.open = self.collect_branches().into_iter().collect();
-                }
-                if ui.small_button("Collapse all").clicked() {
-                    self.open.clear();
-                }
-            });
-            ui.add_space(2.0);
+        egui::Panel::left("tree").resizable(true).default_size(280.0).size_range(200.0..=700.0).show(ui, |ui| {
+            // In the one-tree layout the same button splits the panel and hides the
+            // notebooks, which is what pressing it in OneNote does.
+            let (bars, expand, collapse) = self.nav_header(ui, true);
+            split_now = bars;
+            if expand {
+                self.open = self.collect_branches().into_iter().collect();
+            }
+            if collapse {
+                self.open.clear();
+            }
             // A drag in a pane must not scroll it: in the page a drag moves a container,
             // and in the tree it is a click that slipped. The wheel and the bar still work.
             let scroll = egui::containers::scroll_area::ScrollSource {
                 drag: egui::containers::scroll_area::DragScroll::Never,
                 ..egui::containers::scroll_area::ScrollSource::default()
             };
-            egui::ScrollArea::vertical().auto_shrink([false, false]).scroll_source(scroll).show(ui, |ui| {
+            let room = (ui.available_height() - 72.0).max(60.0);
+            egui::ScrollArea::vertical().auto_shrink([false, false]).max_height(room).scroll_source(scroll).show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 2.0;
                 if self.session.tree().is_empty() {
                     ui.weak("No notebooks yet. Use \"New notebook\".");
                 }
@@ -4221,6 +4262,10 @@ impl NoteCraftApp {
                 }
                 self.empty_space_menu(ui, None, &mut acts);
             });
+            ui.add_space(12.0);
+            if self.nav_new_notebook(ui) {
+                self.dialog = Some(Dialog::NewNotebook { name: String::new(), format: None });
+            }
         });
         if split_now {
             self.split_panes = true;
@@ -4287,7 +4332,7 @@ impl NoteCraftApp {
         /// How big the round "+" is. The gap itself is shorter than this on purpose: it is
         /// a thin strip between two pages, and the button stands out of it.
         const PLUS: f32 = 8.0;
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 7.0), Sense::click());
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 4.0), Sense::click());
         let hot = resp.hovered();
         if hot {
             // The gap is 7 points tall and the circle is 13 across, so the circle has to
@@ -4296,7 +4341,9 @@ impl NoteCraftApp {
             // the circle came out a lozenge, flat at the top and the bottom. Painting on
             // the layer starts from the whole window instead.
             let room = (PLUS + 1.0 - rect.height() / 2.0).max(2.0);
-            let painter = ui.ctx().layer_painter(ui.layer_id()).with_clip_rect(rect.expand(room));
+            // On the foreground, so the row below, which is drawn later, does not cover it.
+            let painter =
+                ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, ui.id().with("page-gap"))).with_clip_rect(rect.expand(room));
             let y = rect.center().y;
             let t = &self.tokens;
             painter.line_segment([egui::pos2(rect.min.x + 21.0, y), egui::pos2(rect.max.x - 6.0, y)], egui::Stroke::new(1.5, t.accent));
@@ -4340,6 +4387,64 @@ impl NoteCraftApp {
         resp.on_hover_text("Show or hide the notebooks column")
     }
 
+    /// The head of the notebooks column: its name and the two buttons that close and open every level.
+    /// With `bars` the three-bar button that hides the column comes first. Gives (bars, expand, collapse).
+    fn nav_header(&self, ui: &mut Ui, bars: bool) -> (bool, bool, bool) {
+        use crate::svgicon::{Prim, paint};
+        const COLLAPSE: [Prim; 1] = [Prim::Path("M7 20l5-5 5 5M7 4l5 5 5-5")];
+        const EXPAND: [Prim; 1] = [Prim::Path("M7 15l5 5 5-5M7 9l5-5 5 5")];
+        let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 58.0), Sense::hover());
+        let painter = ui.painter().clone();
+        let t = &self.tokens;
+        let mut left = rect.min.x + 10.0;
+        let mut toggle = false;
+        if bars {
+            let at = egui::Rect::from_min_size(egui::pos2(rect.min.x, rect.min.y + 17.0), vec2(22.0, 20.0));
+            let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(at));
+            toggle = Self::bars_button_at(&mut inner).clicked();
+            left = rect.min.x + 30.0;
+        }
+        crate::viewtab::text_on_baseline(&painter, left, rect.min.y + 36.5, false, "NOTEBOOKS", 11.0, t.muted);
+        let press = |ui: &mut Ui, x: f32, icon: &[Prim], name: &str, tip: &str| -> bool {
+            let hit = egui::Rect::from_center_size(egui::pos2(x, rect.min.y + 30.0), vec2(26.0, 26.0));
+            let resp = ui.interact(hit, ui.id().with(("nav-header", name)), Sense::click());
+            if resp.hovered() {
+                painter.rect_filled(hit, 6.0, t.row_hover);
+            }
+            paint(&painter, egui::pos2(x - 9.0, rect.min.y + 21.0), 18.0, icon, t.text);
+            let (enabled, said) = (ui.is_enabled(), name.to_string());
+            resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, said.clone()));
+            resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+        };
+        let expand = press(ui, rect.max.x - 19.0, &EXPAND, "Expand all", "Open every level");
+        let collapse = press(ui, rect.max.x - 55.0, &COLLAPSE, "Collapse all", "Close every level");
+        (toggle, expand, collapse)
+    }
+
+    /// The dashed button under the notebooks. True when pressed.
+    fn nav_new_notebook(&self, ui: &mut Ui) -> bool {
+        use crate::svgicon::{Prim, paint};
+        const PLUS: [Prim; 1] = [Prim::Path("M12 5v14M5 12h14")];
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
+        let painter = ui.painter().clone();
+        let t = &self.tokens;
+        if resp.hovered() {
+            painter.rect_filled(rect, 8.0, t.row_hover);
+        }
+        let outline = egui::Stroke::new(1.0, crate::theme::mix(t.faint, t.muted, 0.7));
+        let r = rect.shrink(0.5);
+        let corners = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
+        painter.extend(egui::Shape::dashed_line(&corners, outline, 4.0, 3.0));
+        let label = "New notebook";
+        let words = painter.layout_no_wrap(label.into(), egui::FontId::proportional(14.0), t.text).size().x;
+        let x = rect.center().x - (18.0 + 8.0 + words) / 2.0;
+        paint(&painter, egui::pos2(x, rect.center().y - 9.0), 18.0, &PLUS, t.text);
+        crate::viewtab::text_on_baseline(&painter, x + 26.0, rect.min.y + 29.0, false, label, 14.0, t.text);
+        let (enabled, said) = (ui.is_enabled(), label.to_string());
+        resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, said.clone()));
+        resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+    }
+
     /// The side panel as two columns: the organisers (notebooks, section groups and
     /// sections) and then the pages of whichever section is chosen, the way OneNote splits
     /// them. The three-bar button in the top bar hides the first column.
@@ -4350,24 +4455,35 @@ impl NoteCraftApp {
         };
         let mut toggle = false;
         if self.organisers {
-            egui::Panel::left("organisers").resizable(true).default_size(240.0).size_range(160.0..=520.0).show(ui, |ui| {
-                ui.add_space(4.0);
+            egui::Panel::left("organisers").resizable(true).default_size(260.0).size_range(160.0..=520.0).show(ui, |ui| {
                 // The three-bar button sits at the top left of the notebooks, where
                 // OneNote keeps it, and hides this column.
-                ui.horizontal(|ui| {
-                    toggle |= Self::bars_button_at(ui).clicked();
-                    ui.label(egui::RichText::new("NOTEBOOKS").small().color(self.tokens.muted));
-                });
-                ui.add_space(2.0);
-                egui::ScrollArea::vertical().id_salt("organisers").auto_shrink([false, false]).scroll_source(scroll()).show(ui, |ui| {
-                    if self.session.tree().is_empty() {
-                        ui.weak("No notebooks yet. Use \"New notebook\".");
-                    }
-                    for n in self.session.tree() {
-                        self.draw_row(ui, n, 0, acts, false);
-                    }
-                    self.empty_space_menu(ui, None, acts);
-                });
+                let (bars, expand, collapse) = self.nav_header(ui, true);
+                toggle |= bars;
+                if expand {
+                    self.open = self.collect_branches().into_iter().collect();
+                }
+                if collapse {
+                    self.open.clear();
+                }
+                let room = (ui.available_height() - 72.0).max(60.0);
+                egui::ScrollArea::vertical().id_salt("organisers").auto_shrink([false, false]).max_height(room).scroll_source(scroll()).show(
+                    ui,
+                    |ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        if self.session.tree().is_empty() {
+                            ui.weak("No notebooks yet. Use \"New notebook\".");
+                        }
+                        for n in self.session.tree() {
+                            self.draw_row(ui, n, 0, acts, false);
+                        }
+                        self.empty_space_menu(ui, None, acts);
+                    },
+                );
+                ui.add_space(12.0);
+                if self.nav_new_notebook(ui) {
+                    acts.push(Act::NewNotebook);
+                }
             });
         }
         let section = self.current_section(self.session.tree()).map(|n| (n.path.clone(), n.info.title.clone(), n.children.clone()));
@@ -4375,19 +4491,55 @@ impl NoteCraftApp {
             ui.add_space(4.0);
             match &section {
                 Some((path, title, pages)) => {
-                    ui.horizontal(|ui| {
-                        // With the notebooks hidden the button lives here instead, so it is
-                        // always at the top left of the panel.
-                        if !self.organisers {
-                            toggle |= Self::bars_button_at(ui).clicked();
-                        }
-                        if ui.button("Add page").on_hover_text("A new page in this section").clicked() {
-                            acts.push(Act::Add(path.clone(), NodeKind::Section));
-                        }
-                    });
-                    ui.label(egui::RichText::new(title.to_uppercase()).small().color(self.tokens.muted));
-                    ui.add_space(2.0);
+                    let count = pages.iter().filter(|p| p.info.kind == NodeKind::Page).count();
+                    let above = Self::parent_title(self.session.tree(), path);
+                    let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 58.0), Sense::hover());
+                    let painter = ui.painter().clone();
+                    let mut x = head.min.x + 10.0;
+                    // With the notebooks hidden the button lives here instead, so it is
+                    // always at the top left of the panel.
+                    if !self.organisers {
+                        let at = egui::Rect::from_min_size(egui::pos2(head.min.x, head.min.y + 17.0), vec2(22.0, 20.0));
+                        let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(at));
+                        toggle |= Self::bars_button_at(&mut inner).clicked();
+                        x = head.min.x + 30.0;
+                    }
+                    let clip = painter.with_clip_rect(egui::Rect::from_min_max(head.min, egui::pos2(head.max.x - 8.0, head.max.y)));
+                    crate::viewtab::text_on_baseline(&clip, x, head.min.y + 31.0, false, title, 15.0, self.tokens.text);
+                    let sub =
+                        format!("{}{count} page{}", above.map(|a| format!("{a} \u{b7} ")).unwrap_or_default(), if count == 1 { "" } else { "s" });
+                    crate::viewtab::text_on_baseline(&clip, x, head.min.y + 47.0, false, &sub, 12.0, self.tokens.muted);
+                    ui.add_space(0.0);
+                    // The button for a page, as wide as the column.
+                    let (btn, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
+                    if resp.hovered() {
+                        painter.rect_filled(btn, 8.0, self.tokens.row_hover);
+                    }
+                    painter.rect_stroke(
+                        btn,
+                        8.0,
+                        egui::Stroke::new(1.0, crate::theme::mix(self.tokens.faint, self.tokens.muted, 0.7)),
+                        egui::StrokeKind::Inside,
+                    );
+                    let label = "New page";
+                    let words = painter.layout_no_wrap(label.into(), egui::FontId::proportional(14.0), self.tokens.text).size().x;
+                    let lx = btn.center().x - (18.0 + 10.0 + words) / 2.0;
+                    crate::svgicon::paint(
+                        &painter,
+                        egui::pos2(lx, btn.center().y - 9.0),
+                        18.0,
+                        &[crate::svgicon::Prim::Path("M12 5v14M5 12h14")],
+                        self.tokens.text,
+                    );
+                    crate::viewtab::text_on_baseline(&painter, lx + 28.0, btn.min.y + 26.0, false, label, 14.0, self.tokens.text);
+                    let enabled = ui.is_enabled();
+                    resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "New page"));
+                    if resp.on_hover_text("A new page in this section").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                        acts.push(Act::Add(path.clone(), NodeKind::Section));
+                    }
+                    ui.add_space(8.0);
                     egui::ScrollArea::vertical().id_salt("pages").auto_shrink([false, false]).scroll_source(scroll()).show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
                         let list: Vec<&Node> = pages.iter().filter(|p| p.info.kind == NodeKind::Page).collect();
                         if list.is_empty() {
                             ui.weak("No pages in this section yet.");
