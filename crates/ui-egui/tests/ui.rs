@@ -4417,6 +4417,10 @@ fn double_clicking_an_attachment_card_opens_it() {
     let mut h = harness(app, LIGHT);
     settle(&mut h);
     ask(&mut h, "engine.execute", json!({"command": "page.attach", "params": {"path": page, "source": source.to_string_lossy()}})).expect("attach");
+    // The card's picture is the file's icon. Only some platforms make one when a file is attached, so the test
+    // brings its own: without it the card is a line of words, and there is nothing to double click.
+    let assets = std::path::Path::new(&page).join("assets");
+    std::fs::write(assets.join("brief.docx.png"), LOGO_PNG).expect("the file's icon");
     ask(
         &mut h,
         "engine.execute",

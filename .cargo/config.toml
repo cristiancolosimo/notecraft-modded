@@ -1,2 +1,8 @@
 [alias]
 xtask = "run --package xtask --"
+
+# The window tests open many wgpu devices at once. With the debug layer on, the Vulkan loader
+# crashes in SetDebugUtilsObjectNameEXT on some machines (about two runs in three here), so the
+# tests run with it off. Set WGPU_DEBUG=1 yourself to turn it back on.
+[env]
+WGPU_DEBUG = "0"
