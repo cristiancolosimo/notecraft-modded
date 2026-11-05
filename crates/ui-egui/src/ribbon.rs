@@ -612,7 +612,7 @@ fn pen_chips(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
     });
     quick_popup(ui, &size, "quick-bar-thickness", |ui| {
         let mut done = false;
-        ui.label(egui::RichText::new("Thickness").strong().color(t.text));
+        ui.label(egui::RichText::new(crate::i18n::tr("Thickness")).strong().color(t.text));
         ui.horizontal(|ui| {
             for tenths in rack::THICKNESSES {
                 let here = nib.tenths == tenths;
@@ -643,7 +643,7 @@ fn pen_chips(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
     });
     quick_popup(ui, &hue, "quick-bar-colour", |ui| {
         let mut done = false;
-        ui.label(egui::RichText::new("Colour").strong().color(t.text));
+        ui.label(egui::RichText::new(crate::i18n::tr("Colour")).strong().color(t.text));
         for row in rack::PALETTE {
             ui.horizontal(|ui| {
                 for c in row {
@@ -666,7 +666,7 @@ fn pen_chips(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
         }
         ui.separator();
         // Any colour: the picker is always open here rather than behind another press.
-        ui.label(egui::RichText::new("Custom colour").strong().color(t.text));
+        ui.label(egui::RichText::new(crate::i18n::tr("Custom colour")).strong().color(t.text));
         let mut custom = colour;
         if egui::color_picker::color_picker_color32(ui, &mut custom, egui::color_picker::Alpha::Opaque) {
             acts.push(Act::InkPen(index));
@@ -784,7 +784,7 @@ pub fn tab_strip(ui: &mut Ui, tab: &str, source: bool, in_table: bool, collapsed
         let names = std::iter::once(FILE_TAB).chain(tabs(source, in_table));
         for name in names {
             let selected = name == chosen;
-            let galley = ui.painter().layout_no_wrap(name.to_string(), egui::FontId::proportional(14.0), t.text);
+            let galley = ui.painter().layout_no_wrap(crate::i18n::tr(name).to_string(), egui::FontId::proportional(14.0), t.text);
             let (rect, resp) = ui.allocate_exact_size(vec2(galley.size().x + 30.0, TAB_STRIP_H), Sense::click());
             let painter = ui.painter_at(rect);
             if selected {
@@ -1182,7 +1182,7 @@ pub(crate) fn align_popup(resp: &egui::Response, t: &Tokens, acts: &mut Vec<Act>
             }
         }
         ui.separator();
-        if direction_row(ui, Some(Icon::ParaLtr), "Left-to-Right", t).clicked() {
+        if direction_row(ui, Some(Icon::ParaLtr), crate::i18n::tr("Left-to-Right"), t).clicked() {
             acts.push(Act::Direction(Some(notecraft_model::Dir::Ltr)));
             ui.close();
         }
@@ -1209,13 +1209,13 @@ pub(crate) fn direction_more_popup(resp: &egui::Response, t: &Tokens, acts: &mut
     egui::Popup::menu(resp).show(|ui| {
         ui.set_width(220.0);
         ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
-        ui.label(egui::RichText::new("This paragraph").small().color(t.muted));
+        ui.label(egui::RichText::new(crate::i18n::tr("This paragraph")).small().color(t.muted));
         if direction_row(ui, Some(Icon::ParaAuto), "Direction from the words", t).clicked() {
             acts.push(Act::Direction(None));
             ui.close();
         }
         ui.separator();
-        ui.label(egui::RichText::new("Selected text / next typing").small().color(t.muted));
+        ui.label(egui::RichText::new(crate::i18n::tr("Selected text / next typing")).small().color(t.muted));
         if direction_row(ui, Some(Icon::CaretLtr), "Left-to-Right", t).clicked() {
             acts.push(Act::Embedding(notecraft_model::Dir::Ltr));
             ui.close();
@@ -1444,12 +1444,12 @@ pub(crate) fn table_popup(resp: &egui::Response, view: &View<'_>, t: &Tokens, ac
             ui.close();
         }
         if view.gridcraft {
-            if floating::menu_row(ui, Some(Glyph::Icon(Icon::Spreadsheet)), "New GridCraft Spreadsheet", t).clicked() {
+            if floating::menu_row(ui, Some(Glyph::Icon(Icon::Spreadsheet)), crate::i18n::tr("New GridCraft Spreadsheet"), t).clicked() {
                 acts.push(Act::NewGridCraft);
                 ui.close();
             }
         } else {
-            ui.add_enabled(false, egui::Label::new(egui::RichText::new("New GridCraft Spreadsheet (not installed)").color(t.muted)));
+            ui.add_enabled(false, egui::Label::new(egui::RichText::new(crate::i18n::tr("New GridCraft Spreadsheet (not installed)")).color(t.muted)));
         }
     });
 }
@@ -1493,10 +1493,12 @@ pub(crate) fn paper_popup(ui: &mut Ui, anchor: &egui::Response, open_id: egui::I
                     shelf(ui, "Grid lines", &RuleLines::GRIDS, acts, &mut picked);
                     shelf(ui, "NoteCraft's own", &RuleLines::CRAFT, acts, &mut picked);
                     ui.add_space(1.0);
-                    ui.label(egui::RichText::new("Every fifth line is slightly stronger for easier counting.").small().color(t.muted));
+                    ui.label(
+                        egui::RichText::new(crate::i18n::tr("Every fifth line is slightly stronger for easier counting.")).small().color(t.muted),
+                    );
                     ui.separator();
                     // OneNote's Page Color, under the paper: a pale wash behind the words.
-                    ui.label(egui::RichText::new("Page colour").strong().color(t.text));
+                    ui.label(egui::RichText::new(crate::i18n::tr("Page colour")).strong().color(t.text));
                     ui.horizontal(|ui| {
                         if colour_swatch(ui, None, view.page_colour.is_none(), t).clicked() {
                             acts.push(Act::PageColour(None));
@@ -1509,7 +1511,7 @@ pub(crate) fn paper_popup(ui: &mut Ui, anchor: &egui::Response, open_id: egui::I
                             }
                         }
                     });
-                    ui.label(egui::RichText::new("The paper and colour apply to this page only.").small().color(t.muted));
+                    ui.label(egui::RichText::new(crate::i18n::tr("The paper and colour apply to this page only.")).small().color(t.muted));
                     ui.separator();
                     // The page's title line, shown or hidden.
                     if floating::menu_check_row(ui, view.hide_title, "Hide page title", t).clicked() {
@@ -1518,7 +1520,7 @@ pub(crate) fn paper_popup(ui: &mut Ui, anchor: &egui::Response, open_id: egui::I
                     }
                     if SHOW_UNBUILT {
                         ui.separator();
-                        ui.add_enabled(false, egui::Label::new(egui::RichText::new("Rule line colour (not built)").color(t.muted)));
+                        ui.add_enabled(false, egui::Label::new(egui::RichText::new(crate::i18n::tr("Rule line colour (not built)")).color(t.muted)));
                     }
                 });
             })
@@ -1547,7 +1549,7 @@ fn sensitivity(ui: &mut Ui, now: u8, pressure_available: bool, t: &Tokens, acts:
             ui.data_mut(|d| d.insert_temp(kept, now));
         }
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Pressure").size(12.0).color(t.text));
+            ui.label(egui::RichText::new(crate::i18n::tr("Pressure")).size(12.0).color(t.text));
             if switch(ui, now > 0, pressure_available, "Pressure", t).clicked() {
                 let back = ui.data(|d| d.get_temp::<u8>(kept)).unwrap_or(50);
                 acts.push(Act::InkSensitivity(if now > 0 { 0 } else { back }));
@@ -1728,7 +1730,7 @@ fn pen_on_rack(ui: &mut Ui, i: usize, nib: Nib, chosen: bool, rack_len: usize, t
     // rectangle looked harmless and was not: later widgets win in egui, so it swallowed
     // every left click and only the eraser, which had no such overlay, could be picked up.
     resp.context_menu(|ui| {
-        if ui.button("Modify Tool").clicked() {
+        if ui.button(crate::i18n::tr("Modify Tool")).clicked() {
             modify = true;
             ui.close();
         }
@@ -1791,7 +1793,7 @@ fn modify_tool(ui: &mut Ui, id: egui::Id, under: Rect, i: usize, nib: Nib, rack_
                 crate::inkpad::paint_stroke(&ui.painter_at(sample), sample.min, &stroke);
                 ui.separator();
 
-                ui.label(egui::RichText::new("Thickness").size(10.5).color(t.muted));
+                ui.label(egui::RichText::new(crate::i18n::tr("Thickness")).size(10.5).color(t.muted));
                 ui.horizontal(|ui| {
                     for tenths in rack::THICKNESSES {
                         let here = nib.tenths == tenths;
@@ -1815,7 +1817,7 @@ fn modify_tool(ui: &mut Ui, id: egui::Id, under: Rect, i: usize, nib: Nib, rack_
                 });
 
                 ui.add_space(2.0);
-                ui.label(egui::RichText::new("Colours").size(10.5).color(t.muted));
+                ui.label(egui::RichText::new(crate::i18n::tr("Colours")).size(10.5).color(t.muted));
                 for row in rack::PALETTE {
                     ui.horizontal(|ui| {
                         for colour in row {
@@ -1910,7 +1912,7 @@ fn eraser_on_rack(ui: &mut Ui, chosen: bool, t: &Tokens) -> egui::Response {
     if chosen {
         chevron(&painter, egui::pos2(rect.center().x, rect.max.y - 5.0), t.muted);
     }
-    resp.on_hover_text("Rub out whatever the pointer passes over")
+    resp.on_hover_text(crate::i18n::tr("Rub out whatever the pointer passes over"))
 }
 
 /// Draws one drawing tool upright inside `rect`, the way OneNote draws its rack.
@@ -2406,7 +2408,7 @@ fn table_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
         } else {
             let dim = Tokens { accent: t.muted, text: t.muted, ..*t };
             let resp = ui.add_enabled_ui(false, |ui| big(ui, Icon::Spreadsheet, "Convert to\nGridCraft", "GridCraft is not installed", &dim)).inner;
-            resp.on_hover_text("Convert to GridCraft: GridCraft is not installed");
+            resp.on_hover_text(crate::i18n::tr("Convert to GridCraft: GridCraft is not installed"));
         }
     });
 }
@@ -2456,7 +2458,7 @@ fn source_tab(ui: &mut Ui, format: Option<PageFormat>, t: &Tokens, acts: &mut Ve
         ui.vertical(|ui| {
             ui.add_space(8.0);
             ui.label(egui::RichText::new(name).size(12.0).color(t.text));
-            ui.label(egui::RichText::new("The format is set when the page is created").size(10.0).color(t.muted));
+            ui.label(egui::RichText::new(crate::i18n::tr("The format is set when the page is created")).size(10.0).color(t.muted));
         });
     });
 }

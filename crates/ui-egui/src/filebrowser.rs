@@ -131,7 +131,7 @@ impl Browser {
                     }
                     if self.asked {
                         ui.label(RichText::new("Come back here after you allow it, then press Refresh.").small().color(tokens.muted));
-                        if ui.button("Refresh").clicked() {
+                        if ui.button(crate::i18n::tr("Refresh")).clicked() {
                             self.rows = None;
                         }
                     }

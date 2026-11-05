@@ -3143,6 +3143,36 @@ fn the_format_of_a_new_page_is_chosen_in_its_window() {
     }
 }
 
+/// The window speaks English or Italian, chosen in Options and remembered.
+#[test]
+fn the_language_is_chosen_in_options_and_remembered() {
+    let (t, mut app, s) = split_sample_app("ui-language");
+    let settings = t.path().join("settings.toml");
+    app.open_path(&s.md_page.to_string_lossy());
+    app.open_backstage_page("Options");
+    let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 800.0));
+    settle(&mut h);
+    h.get_by_label_contains("Language: English").click();
+    settle(&mut h);
+    h.get_all_by_label("Italiano").last().expect("the entry").click();
+    settle(&mut h);
+    assert!(std::fs::read_to_string(&settings).unwrap_or_default().contains("language = \"it\""), "the choice is written");
+    assert_eq!(notecraft_ui_egui::i18n::language(), "it");
+    review(&mut h, "it-options");
+    for page in ["Info", "New", "Open", "Sync", "Export"] {
+        h.state_mut().open_backstage_page(page);
+        settle(&mut h);
+        review(&mut h, &format!("it-{}", page.to_lowercase()));
+    }
+    h.get_by_label("Back to notes").click();
+    settle(&mut h);
+    review(&mut h, "it-home");
+    h.get_by_label("New page").click();
+    settle(&mut h);
+    review(&mut h, "it-new-page");
+    notecraft_ui_egui::i18n::set_language("en");
+}
+
 /// The Home tab, drawn to the design: its controls are there and the styles, marks and lists act on the page.
 #[test]
 fn the_home_tab_has_its_groups_and_its_controls_work() {

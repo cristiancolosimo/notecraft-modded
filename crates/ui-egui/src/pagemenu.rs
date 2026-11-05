@@ -77,7 +77,7 @@ pub fn items(ui: &mut Ui, acts: &mut Vec<Act>, clipboard: bool, t: &Tokens) -> b
             picked = true;
         }
     };
-    item(ui, Glyph::Mark(Mark::Paste), "Paste", Act::Paste);
+    item(ui, Glyph::Mark(Mark::Paste), crate::i18n::tr("Paste"), Act::Paste);
     if clipboard {
         item(ui, Glyph::Mark(Mark::Cut), "Cut", Act::Clipboard("cut"));
         item(ui, Glyph::Mark(Mark::Copy), "Copy", Act::Clipboard("copy"));

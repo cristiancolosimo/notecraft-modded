@@ -164,7 +164,7 @@ pub fn show(ui: &mut Ui, config: &mut Config, enabled: Enabled, t: &Tokens, menu
     egui::Popup::menu(&arrow).frame(frame).show(|ui| {
         ui.set_width(floating::MENU_W + 20.0);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        ui.label(egui::RichText::new("Customize Quick Access Toolbar").strong().color(menu.text));
+        ui.label(egui::RichText::new(crate::i18n::tr("Customize Quick Access Toolbar")).strong().color(menu.text));
         ui.add_space(4.0);
         for cmd in Command::ALL {
             if floating::menu_check_row(ui, config.shows(cmd), cmd.label(), menu).clicked() {
@@ -216,7 +216,7 @@ fn customize_button(ui: &mut Ui, t: &Tokens) -> egui::Response {
         egui::Stroke::NONE,
     ));
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Customize Quick Access Toolbar"));
-    resp.on_hover_text("Customize Quick Access Toolbar")
+    resp.on_hover_text(crate::i18n::tr("Customize Quick Access Toolbar"))
 }
 
 #[cfg(test)]

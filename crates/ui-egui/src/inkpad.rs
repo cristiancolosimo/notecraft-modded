@@ -1048,10 +1048,10 @@ fn actions(ui: &mut Ui, body: egui::Rect, pad: &mut Pad, pointer: crate::ribbon:
                                 }
                             }
                         }
-                        if !clip.is_empty() && ui.button("Paste").clicked() {
+                        if !clip.is_empty() && ui.button(crate::i18n::tr("Paste")).clicked() {
                             action = Some("paste");
                         }
-                        if !held && ui.button("Select all").clicked() {
+                        if !held && ui.button(crate::i18n::tr("Select all")).clicked() {
                             action = Some("all");
                         }
                     });

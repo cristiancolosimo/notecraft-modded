@@ -124,7 +124,7 @@ pub fn show(ctx: &egui::Context, t: &Tokens, lift: f32) -> Outcome {
         paint(&painter, cross.min, 20.0, &CLOSE, t.text);
         let (enabled, label) = (ui.is_enabled(), "Close");
         cross_resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
-        if cross_resp.on_hover_text("Close (Esc)").clicked() {
+        if cross_resp.on_hover_text(crate::i18n::tr("Close (Esc)")).clicked() {
             outcome = Outcome::Close;
         }
 
@@ -134,7 +134,7 @@ pub fn show(ctx: &egui::Context, t: &Tokens, lift: f32) -> Outcome {
         let input = Rect::from_min_size(rel(50.0, 76.0), vec2(314.0, 20.0));
         let edit = egui::TextEdit::singleline(&mut query)
             .frame(egui::Frame::NONE)
-            .hint_text(egui::RichText::new("Search for a symbol").color(t.muted))
+            .hint_text(egui::RichText::new(crate::i18n::tr("Search for a symbol")).color(t.muted))
             .font(FontId::proportional(16.0))
             .text_color(t.text)
             .desired_width(314.0)

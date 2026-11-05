@@ -65,7 +65,7 @@ pub fn text_on_baseline(painter: &Painter, x: f32, baseline: f32, centre: bool, 
 /// The same, in any face.
 pub fn text_on_baseline_in(painter: &Painter, x: f32, baseline: f32, centre: bool, text: &str, font: FontId, colour: Color32) -> f32 {
     let size = font.size;
-    let galley = painter.layout_no_wrap(text.to_string(), font, colour);
+    let galley = painter.layout_no_wrap(crate::i18n::tr(text).to_string(), font, colour);
     let drop = galley.rows.first().and_then(|row| row.glyphs.first().map(|g| row.pos.y + g.pos.y)).unwrap_or(size * 0.8);
     let width = galley.size().x;
     let left = if centre { x - width / 2.0 } else { x };
@@ -74,7 +74,7 @@ pub fn text_on_baseline_in(painter: &Painter, x: f32, baseline: f32, centre: boo
 }
 
 pub(crate) fn width_of(painter: &Painter, text: &str, size: f32) -> f32 {
-    painter.layout_no_wrap(text.to_string(), FontId::proportional(size), Color32::WHITE).size().x
+    painter.layout_no_wrap(crate::i18n::tr(text).to_string(), FontId::proportional(size), Color32::WHITE).size().x
 }
 
 /// What is drawn on a button and what a reader of the screen is told it is.
@@ -147,7 +147,7 @@ fn button(ui: &mut Ui, ink: &Ink, rect: Rect, face: &Face<'_>, id: &str) -> egui
     }
     let (enabled, name, on) = (ui.is_enabled(), face.name.to_string(), face.on);
     resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, on, name.clone()));
-    resp.on_hover_text(face.name)
+    resp.on_hover_text(crate::i18n::tr(face.name))
 }
 
 /// What a group is made of: buttons, or a column of its own that the caller draws.
@@ -371,7 +371,7 @@ fn zoom_column(ui: &mut Ui, ink: &Ink, x: f32, panel_top: f32, view: &View<'_>, 
     text_on_baseline(&painter, row.min.x + 36.0, row.min.y + 20.5, false, "Fit width", 13.0, ink.text);
     let enabled = ui.is_enabled();
     fit.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "Page Width"));
-    if fit.on_hover_text("Fit the page to the available width").clicked() {
+    if fit.on_hover_text(crate::i18n::tr("Fit the page to the available width")).clicked() {
         acts.push(Act::PageWidth);
     }
 }

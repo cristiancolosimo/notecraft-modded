@@ -53,6 +53,8 @@ pub enum Act {
     SetFpsLimit(u32),
     /// The compact toolbar (true) or the tabbed ribbon (false).
     SetCompactUi(bool),
+    /// The language of the window: `en` or `it`.
+    SetLanguage(String),
     /// Write this notebook to a ZIP.
     ExportNotebook(std::path::PathBuf),
     ResetPreferences,
@@ -191,7 +193,7 @@ fn side_bar(ui: &mut Ui, page: &str, t: &Tokens, acts: &mut Vec<Act>) {
 }
 
 fn heading(ui: &mut Ui, text: &str, t: &Tokens) {
-    ui.label(egui::RichText::new(text).size(22.0).color(t.strong));
+    ui.label(egui::RichText::new(crate::i18n::tr(text)).size(22.0).color(t.strong));
     ui.add_space(8.0);
 }
 
@@ -207,7 +209,8 @@ fn info_page(ui: &mut Ui, notebooks: &[Node], folder: &str, show_path: &dyn Fn(&
     let painter = ui.painter().clone();
     text_on_baseline(&painter, head.min.x, head.min.y + 75.0, false, "Notebooks", 28.0, t.text);
     let items: usize = notebooks.iter().map(Node::count).sum();
-    let sub = format!("{} notebook{} \u{b7} {items} items", notebooks.len(), if notebooks.len() == 1 { "" } else { "s" });
+    let sub = crate::i18n::tr_dyn(&format!("{} notebook{} \u{b7} {items} items", notebooks.len(), if notebooks.len() == 1 { "" } else { "s" }))
+        .into_owned();
     text_on_baseline(&painter, head.min.x, head.min.y + 99.0, false, &sub, 14.0, t.muted);
     let new = egui::Rect::from_min_size(egui::pos2(head.max.x - 175.1, head.min.y + 58.0), vec2(175.1, 44.0));
     let press = ui.interact(new, ui.id().with("backstage-new-notebook"), Sense::click());
@@ -220,7 +223,7 @@ fn info_page(ui: &mut Ui, notebooks: &[Node], folder: &str, show_path: &dyn Fn(&
         acts.push(Act::Page("New"));
     }
     if notebooks.is_empty() {
-        ui.label(egui::RichText::new("There are no notebooks yet. \"New\" starts one.").color(t.muted));
+        ui.label(egui::RichText::new(crate::i18n::tr("There are no notebooks yet. \"New\" starts one.")).color(t.muted));
     }
     egui::ScrollArea::vertical().id_salt("backstage-info").show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 16.0;
@@ -246,7 +249,7 @@ fn info_page(ui: &mut Ui, notebooks: &[Node], folder: &str, show_path: &dyn Fn(&
             let enabled = ui.is_enabled();
             open.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, format!("Open {name}")));
             let title_colour = if open.hovered() { t.accent } else { t.text };
-            if open.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Open this notebook").clicked() {
+            if open.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(crate::i18n::tr("Open this notebook")).clicked() {
                 acts.push(Act::Open(n.path.clone()));
             }
             text_on_baseline(&painter, card.min.x + 89.0, card.min.y + 43.5, false, &n.info.title, 18.0, title_colour);
@@ -256,7 +259,7 @@ fn info_page(ui: &mut Ui, notebooks: &[Node], folder: &str, show_path: &dyn Fn(&
                 card.min.x + 89.0,
                 card.min.y + 65.5,
                 false,
-                &format!("{} items \u{b7} {colour} colour", n.count()),
+                &crate::i18n::tr_dyn(&format!("{} items \u{b7} {colour} colour", n.count())),
                 13.0,
                 t.muted,
             );
@@ -285,7 +288,7 @@ fn info_page(ui: &mut Ui, notebooks: &[Node], folder: &str, show_path: &dyn Fn(&
             }
         }
         ui.add_space(8.0);
-        ui.label(egui::RichText::new(format!("All of them live in {folder}")).size(12.0).color(t.muted));
+        ui.label(egui::RichText::new(crate::i18n::tr_dyn(&format!("All of them live in {folder}"))).size(12.0).color(t.muted));
         if crate::ribbon::SHOW_UNBUILT {
             ui.label(
                 egui::RichText::new(
@@ -328,7 +331,7 @@ fn sync_page(ui: &mut Ui, sync: &mut crate::syncing::Syncing, t: &Tokens, acts: 
     } else {
         ("Not configured", None)
     };
-    let words = painter.layout_no_wrap(state.into(), egui::FontId::proportional(12.0), t.muted).size().x;
+    let words = painter.layout_no_wrap(crate::i18n::tr(state).into(), egui::FontId::proportional(12.0), t.muted).size().x;
     let pill = egui::Rect::from_min_size(egui::pos2(head.min.x + title + 14.0, head.min.y + 46.0), vec2(words + 34.0, 24.0));
     painter.rect_filled(pill, 12.0, pill_fill);
     let at = egui::pos2(pill.min.x + 14.0, pill.center().y);
@@ -428,7 +431,7 @@ fn sync_page(ui: &mut Ui, sync: &mut crate::syncing::Syncing, t: &Tokens, acts: 
     // Save, sync now, and what is missing or what happened last.
     ui.add_space(16.0);
     let (row, _) = ui.allocate_exact_size(vec2(form_width, 44.0), Sense::hover());
-    let save_words = painter.layout_no_wrap("Save".into(), egui::FontId::proportional(14.0), ink).size().x;
+    let save_words = painter.layout_no_wrap(crate::i18n::tr("Save").into(), egui::FontId::proportional(14.0), ink).size().x;
     let save = egui::Rect::from_min_size(row.min, vec2(save_words + 32.0, 44.0));
     let press = ui.interact(save, ui.id().with("sync-save"), Sense::click());
     painter.rect_filled(save, 10.0, if press.hovered() { crate::theme::mix(t.accent, egui::Color32::WHITE, 0.12) } else { t.accent });
@@ -439,7 +442,7 @@ fn sync_page(ui: &mut Ui, sync: &mut crate::syncing::Syncing, t: &Tokens, acts: 
         acts.push(Act::SyncSave(false));
     }
     let label = if busy { "Syncing..." } else { "Sync now" };
-    let now_words = painter.layout_no_wrap(label.into(), egui::FontId::proportional(14.0), t.text).size().x;
+    let now_words = painter.layout_no_wrap(crate::i18n::tr(label).into(), egui::FontId::proportional(14.0), t.text).size().x;
     let now = egui::Rect::from_min_size(egui::pos2(save.max.x + 12.0, row.min.y), vec2(now_words + 60.0, 44.0));
     let ready = complete && !busy;
     let press = ui.interact(now, ui.id().with("sync-now"), if ready { Sense::click() } else { Sense::hover() });
@@ -500,7 +503,7 @@ fn sync_page(ui: &mut Ui, sync: &mut crate::syncing::Syncing, t: &Tokens, acts: 
             for (text, code) in parts {
                 let font = if *code { egui::FontId::monospace(13.0) } else { egui::FontId::proportional(13.0) };
                 job.append(
-                    text,
+                    if *code { text } else { crate::i18n::tr(text) },
                     0.0,
                     egui::TextFormat { font_id: font, color: if *code { t.text } else { t.muted }, line_height: Some(19.0), ..Default::default() },
                 );
@@ -525,10 +528,12 @@ fn sync_page(ui: &mut Ui, sync: &mut crate::syncing::Syncing, t: &Tokens, acts: 
 /// Export: each notebook as one ZIP of its folder.
 fn export_page(ui: &mut Ui, notebooks: &[Node], show_path: &dyn Fn(&std::path::Path) -> String, t: &Tokens, acts: &mut Vec<Act>) {
     heading(ui, "Export a notebook", t);
-    ui.label(egui::RichText::new("A ZIP holds the notebook folder as it is, so unzipping it gives the notebook back.").color(t.muted));
+    ui.label(
+        egui::RichText::new(crate::i18n::tr("A ZIP holds the notebook folder as it is, so unzipping it gives the notebook back.")).color(t.muted),
+    );
     ui.add_space(8.0);
     if notebooks.is_empty() {
-        ui.label(egui::RichText::new("There are no notebooks yet. \"New\" starts one.").color(t.muted));
+        ui.label(egui::RichText::new(crate::i18n::tr("There are no notebooks yet. \"New\" starts one.")).color(t.muted));
     }
     egui::ScrollArea::vertical().id_salt("backstage-export").show(ui, |ui| {
         for n in notebooks {
@@ -630,7 +635,7 @@ fn new_page(ui: &mut Ui, notebooks: &[Node], folder: &str, show_path: &dyn Fn(&s
     }
     // The button, as wide as its words, and where the notebook will be written.
     let font = egui::FontId::proportional(14.0);
-    let words = painter.layout_no_wrap("Create notebook".into(), font, ink).size().x;
+    let words = painter.layout_no_wrap(crate::i18n::tr("Create notebook").into(), font, ink).size().x;
     let create = egui::Rect::from_min_size(egui::pos2(x, card.min.y + 283.0), vec2(words + 32.0, 44.0));
     let ready = !name.trim().is_empty();
     let press = ui.interact(create, ui.id().with("new-notebook-create"), if ready { Sense::click() } else { Sense::hover() });
@@ -639,7 +644,7 @@ fn new_page(ui: &mut Ui, notebooks: &[Node], folder: &str, show_path: &dyn Fn(&s
     text_on_baseline(&painter, create.min.x + 16.0, create.min.y + 30.0, false, "Create notebook", 14.0, ink);
     let enabled = ready && ui.is_enabled();
     press.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "Create notebook"));
-    let there = format!("In {}", show_path(std::path::Path::new(folder)));
+    let there = crate::i18n::tr_dyn(&format!("In {}", show_path(std::path::Path::new(folder)))).into_owned();
     let after = create.max.x + 16.0;
     text_on_baseline(&painter, after, create.min.y + 26.25, false, "In ", 12.0, t.muted);
     text_on_baseline_in(&painter, after + 13.0, create.min.y + 27.25, false, &there[3..], egui::FontId::monospace(12.0), t.muted);
@@ -695,7 +700,7 @@ fn new_page(ui: &mut Ui, notebooks: &[Node], folder: &str, show_path: &dyn Fn(&s
 fn open_page(ui: &mut Ui, recent: &[Node], folder: &str, show_path: &dyn Fn(&std::path::Path) -> String, t: &Tokens, acts: &mut Vec<Act>) {
     heading(ui, "Open a notebook", t);
     ui.horizontal(|ui| {
-        if ui.add_sized([230.0, 42.0], egui::Button::new(egui::RichText::new("Browse for a notebook…").size(15.0))).clicked() {
+        if ui.add_sized([230.0, 42.0], egui::Button::new(egui::RichText::new(crate::i18n::tr("Browse for a notebook…")).size(15.0))).clicked() {
             acts.push(Act::ChooseFolder);
         }
         if open_action(ui, "Show notebooks folder", 210.0, 42.0, t, false).clicked() {
@@ -713,14 +718,17 @@ fn open_page(ui: &mut Ui, recent: &[Node], folder: &str, show_path: &dyn Fn(&std
         if open_action(ui, "Import PDF to annotate", 230.0, 36.0, t, true).clicked() {
             acts.push(Act::ImportPdf);
         }
-        let cloud = ui.add_enabled(false, egui::Button::new(egui::RichText::new("Import from the cloud").size(13.0)).min_size(vec2(190.0, 36.0)));
-        cloud.on_hover_text("Cloud import is not implemented yet.");
+        let cloud = ui.add_enabled(
+            false,
+            egui::Button::new(egui::RichText::new(crate::i18n::tr("Import from the cloud")).size(13.0)).min_size(vec2(190.0, 36.0)),
+        );
+        cloud.on_hover_text(crate::i18n::tr("Cloud import is not implemented yet."));
     });
     ui.add_space(22.0);
-    ui.label(egui::RichText::new("Recently opened").size(16.0).color(t.strong));
+    ui.label(egui::RichText::new(crate::i18n::tr("Recently opened")).size(16.0).color(t.strong));
     ui.add_space(8.0);
     if recent.is_empty() {
-        ui.label(egui::RichText::new("Notebooks you open will appear here.").size(13.0).color(t.muted));
+        ui.label(egui::RichText::new(crate::i18n::tr("Notebooks you open will appear here.")).size(13.0).color(t.muted));
         return;
     }
     egui::ScrollArea::vertical().id_salt("backstage-recent-notebooks").show(ui, |ui| {
@@ -760,11 +768,11 @@ fn open_page(ui: &mut Ui, recent: &[Node], folder: &str, show_path: &dyn Fn(&std
             response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Open {name}")));
             let path = notebook.path.clone();
             response.context_menu(|ui| {
-                if ui.button("Remove from list").clicked() {
+                if ui.button(crate::i18n::tr("Remove from list")).clicked() {
                     acts.push(Act::RemoveRecent(path.clone()));
                     ui.close();
                 }
-                if ui.button("Delete notebook...").clicked() {
+                if ui.button(crate::i18n::tr("Delete notebook...")).clicked() {
                     acts.push(Act::DeleteRecent(path.clone(), name.clone()));
                     ui.close();
                 }
@@ -776,10 +784,11 @@ fn open_page(ui: &mut Ui, recent: &[Node], folder: &str, show_path: &dyn Fn(&std
         }
     });
     ui.add_space(8.0);
-    ui.label(egui::RichText::new(format!("Browse notebooks in {folder} or choose another folder.")).size(11.5).color(t.muted));
+    ui.label(egui::RichText::new(crate::i18n::tr_dyn(&format!("Browse notebooks in {folder} or choose another folder."))).size(11.5).color(t.muted));
 }
 
 fn open_action(ui: &mut Ui, label: &str, width: f32, height: f32, t: &Tokens, primary: bool) -> egui::Response {
+    let label = crate::i18n::tr(label);
     let (fill, stroke, text) = if primary { (t.accent, t.accent, t.band_text) } else { (t.panel, t.faint, t.text) };
     let response = ui
         .add(
@@ -804,7 +813,7 @@ pub(crate) fn wrapped(painter: &egui::Painter, x: f32, baseline: f32, text: &str
     let mut job = egui::text::LayoutJob::default();
     job.wrap.max_width = wrap;
     job.append(
-        text,
+        crate::i18n::tr(text),
         0.0,
         egui::TextFormat { font_id: egui::FontId::proportional(size), color: colour, line_height: Some(16.0), ..Default::default() },
     );
@@ -886,7 +895,7 @@ fn icon_button(
 
 /// The width of `text` at 14.
 fn words(ui: &Ui, text: &str) -> f32 {
-    ui.painter().layout_no_wrap(text.into(), egui::FontId::proportional(14.0), egui::Color32::WHITE).size().x
+    ui.painter().layout_no_wrap(crate::i18n::tr(text).into(), egui::FontId::proportional(14.0), egui::Color32::WHITE).size().x
 }
 
 /// Options, to a drawn design: how the window looks and runs, what is recorded on this device, and the reset.
@@ -951,6 +960,23 @@ fn options_page(
                 acts.push(Act::SetCompactUi(compact));
             }
         }
+        // Language.
+        ui.add_space(20.0);
+        let card = options_card(ui, width, 130.0, t.faint, "Language", t);
+        setting(
+            &painter,
+            card,
+            79.0,
+            "Language of the window",
+            "The menus, the buttons and the messages. Notebooks and pages are not translated.",
+            540.0,
+            t,
+        );
+        let languages: Vec<(String, String)> = crate::i18n::LANGUAGES.iter().map(|(c, n)| (c.to_string(), n.to_string())).collect();
+        let current = crate::i18n::LANGUAGES.iter().find(|(c, _)| *c == crate::i18n::language()).map_or("English", |(_, n)| n);
+        if let Some(code) = select(ui, card, 68.0, "Language", current, &languages, t) {
+            acts.push(Act::SetLanguage(code));
+        }
         // Performance.
         ui.add_space(20.0);
         let card = options_card(ui, width, 197.0, t.faint, "Performance", t);
@@ -996,7 +1022,7 @@ fn options_page(
         let card = options_card(ui, width, 316.5, t.faint, "Local diagnostics", t);
         text_on_baseline(&painter, card.min.x + 25.0, card.min.y + 60.0, false, "Choose what NoteCraft records on this device.", 12.0, t.muted);
         let badge_text = "Stays on this device";
-        let badge_words = painter.layout_no_wrap(badge_text.into(), egui::FontId::proportional(12.0), safe).size().x;
+        let badge_words = painter.layout_no_wrap(crate::i18n::tr(badge_text).into(), egui::FontId::proportional(12.0), safe).size().x;
         let badge =
             egui::Rect::from_min_size(egui::pos2(card.max.x - 25.0 - (badge_words + 40.0), card.min.y + 19.0), vec2(badge_words + 40.0, 24.0));
         painter.rect_filled(badge, 12.0, pill_fill);
@@ -1028,7 +1054,7 @@ fn options_page(
             crate::svgicon::paint(&painter, copy.min + vec2(6.0, 6.0), 18.0, &COPY, t.text);
             let enabled = ui.is_enabled();
             resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "Copy the session"));
-            if resp.on_hover_text("Copy").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+            if resp.on_hover_text(crate::i18n::tr("Copy")).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                 ui.ctx().copy_text(id.to_string());
             }
         }

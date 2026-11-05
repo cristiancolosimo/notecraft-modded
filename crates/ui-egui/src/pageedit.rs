@@ -2485,7 +2485,7 @@ fn lead(ui: &mut Ui, block: &Block, t: &Tokens) -> Option<bool> {
             match task {
                 Some(done) => {
                     let mut v = *done;
-                    if ui.checkbox(&mut v, "").changed() {
+                    if ui.checkbox(&mut v, crate::i18n::tr("")).changed() {
                         ticked = Some(v);
                     }
                 }
@@ -2496,7 +2496,7 @@ fn lead(ui: &mut Ui, block: &Block, t: &Tokens) -> Option<bool> {
         }
         Block::Quote(_) => {
             ui.add_space(6.0);
-            ui.label(egui::RichText::new("\u{2588}").color(t.quote_bar));
+            ui.label(egui::RichText::new(crate::i18n::tr("\u{2588}")).color(t.quote_bar));
         }
         _ => {}
     }

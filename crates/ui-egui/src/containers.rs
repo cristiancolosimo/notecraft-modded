@@ -589,7 +589,8 @@ pub fn show(
         // that needs neither a keyboard nor a right click. It is there on every frame, drawn or not.
         let gone = (!image_object).then(|| {
             let cross = Rect::from_min_size(pos2(bar.max.x - handle, bar.min.y), vec2(handle, handle));
-            let response = ui.interact(cross, ui.id().with(("container-delete", i)), Sense::click()).on_hover_text("Delete this box");
+            let response =
+                ui.interact(cross, ui.id().with(("container-delete", i)), Sense::click()).on_hover_text(crate::i18n::tr("Delete this box"));
             let (enabled, name) = (ui.is_enabled(), "Delete box");
             response.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
             (cross, response)
@@ -692,17 +693,17 @@ pub fn show(
                 egui::Frame::popup(menu.style()).inner_margin(egui::Margin::same(4)).show(menu, |menu| {
                     menu.set_width(floating::MENU_W);
                     menu.spacing_mut().item_spacing = vec2(0.0, 0.0);
-                    if floating::menu_row(menu, Some(Glyph::Mark(Mark::Cut)), "Cut", t).clicked() {
+                    if floating::menu_row(menu, Some(Glyph::Mark(Mark::Cut)), crate::i18n::tr("Cut"), t).clicked() {
                         copy = true;
                         delete_at = Some(i);
                         picked = true;
                     }
-                    if floating::menu_row(menu, Some(Glyph::Mark(Mark::Copy)), "Copy", t).clicked() {
+                    if floating::menu_row(menu, Some(Glyph::Mark(Mark::Copy)), crate::i18n::tr("Copy"), t).clicked() {
                         copy = true;
                         picked = true;
                     }
                     floating::menu_separator(menu, t);
-                    if floating::menu_row(menu, Some(Glyph::Mark(Mark::Delete)), "Delete", t).clicked() {
+                    if floating::menu_row(menu, Some(Glyph::Mark(Mark::Delete)), crate::i18n::tr("Delete"), t).clicked() {
                         delete_at = Some(i);
                         picked = true;
                     }

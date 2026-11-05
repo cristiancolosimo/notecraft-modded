@@ -221,7 +221,7 @@ pub fn home_tab(ui: &mut Ui, view: &View<'_>, t: &Tokens, acts: &mut Vec<Act>) {
         text_on_baseline(ui.painter(), more.min.x + 8.0, panel_top + 70.5, false, more_label, 13.0, ink.text);
         let enabled = ui.is_enabled();
         resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "Text run direction"));
-        let resp = resp.on_hover_text("Text run direction, and a paragraph that reads from its words");
+        let resp = resp.on_hover_text(crate::i18n::tr("Text run direction, and a paragraph that reads from its words"));
         crate::ribbon::direction_more_popup(&resp, t, acts);
     });
 
@@ -275,7 +275,7 @@ fn styles(ui: &mut Ui, ink: &Ink, t: &Tokens, view: &View<'_>, panel_top: f32, r
     paint(&painter, pos2(arrow.center().x - 8.0, arrow.center().y - 8.0), 16.0, &CHEVRON, ink.text);
     let enabled = ui.is_enabled();
     resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "More styles"));
-    let resp = resp.on_hover_text("All the styles");
+    let resp = resp.on_hover_text(crate::i18n::tr("All the styles"));
     egui::Popup::menu(&resp).show(|ui| {
         ui.set_min_width(210.0);
         ui.spacing_mut().item_spacing = vec2(2.0, 1.0);
@@ -286,7 +286,7 @@ fn styles(ui: &mut Ui, ink: &Ink, t: &Tokens, view: &View<'_>, panel_top: f32, r
             }
         }
         ui.separator();
-        if ui.button("Clear formatting").clicked() {
+        if ui.button(crate::i18n::tr("Clear formatting")).clicked() {
             acts.push(Act::ClearFormatting);
             ui.close();
         }
@@ -321,10 +321,10 @@ fn tags(ui: &mut Ui, ink: &Ink, t: &Tokens, panel_top: f32, rect: Rect, acts: &m
     paint(&painter, pos2(arrow.center().x - 8.0, arrow.center().y - 8.0), 16.0, &CHEVRON, ink.text);
     let enabled = ui.is_enabled();
     resp.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "More tags"));
-    let resp = resp.on_hover_text("All the tags");
+    let resp = resp.on_hover_text(crate::i18n::tr("All the tags"));
     egui::Popup::menu(&resp).show(|ui| {
         ui.set_min_width(220.0);
-        ui.label(egui::RichText::new("Tags").strong());
+        ui.label(egui::RichText::new(crate::i18n::tr("Tags")).strong());
         for tag in Tag::ALL {
             if crate::ribbon::tag_row(ui, tag, t).clicked() {
                 acts.push(Act::Tag(tag));

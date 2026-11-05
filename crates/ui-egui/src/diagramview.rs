@@ -194,7 +194,7 @@ pub fn show_zoomed(ui: &mut Ui, source: &str, t: &Tokens, zoom: f32) -> Shown {
         Shown::Drawing => {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label(egui::RichText::new("Drawing...").color(t.muted));
+                ui.label(egui::RichText::new(crate::i18n::tr("Drawing...")).color(t.muted));
             });
         }
         Shown::Failed(why) => {
