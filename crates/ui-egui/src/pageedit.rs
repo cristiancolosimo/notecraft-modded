@@ -288,6 +288,51 @@ pub fn set_kind(blocks: &mut [Block], at: usize, kind: &str) -> bool {
     true
 }
 
+/// Markdown typed at the start of an empty line becomes what it says, as in a Markdown editor: `# ` to `###### `
+/// a heading, `- `, `* ` or `+ ` a bullet, `1. ` a numbered item, `[] ` a to-do, `> ` a quote and three backticks
+/// a block of code. The marker goes and the caret stays on the line. Returns true when the line was changed.
+/// Only a line that holds nothing but the marker is turned, so a line of words that happens to start with `- `
+/// is left as it was written.
+pub fn markdown_shortcut(blocks: &mut [Block], at: usize, caret: &mut Caret) -> bool {
+    if !matches!(blocks.get(at), Some(Block::Paragraph(_))) {
+        return false;
+    }
+    let typed = caret.text.as_str();
+    let kind = match typed {
+        "```" => "codeblock",
+        "- " | "* " | "+ " => "bullet",
+        "> " => "quote",
+        "[] " | "[ ] " => "todo",
+        _ => {
+            let marker = typed.strip_suffix(' ').unwrap_or("");
+            let hashes = marker.len();
+            if (1..=6).contains(&hashes) && marker.chars().all(|c| c == '#') {
+                ["h1", "h2", "h3", "h4", "h5", "h6"][hashes - 1]
+            } else if marker.len() >= 2
+                && marker.len() <= 4
+                && marker.ends_with(['.', ')'])
+                && marker[..marker.len() - 1].chars().all(|c| c.is_ascii_digit())
+            {
+                "number"
+            } else {
+                return false;
+            }
+        }
+    };
+    // The marker goes first, so the line is empty when it takes its new kind and keeps nothing of it.
+    if let Some(b) = blocks.get_mut(at) {
+        set_block_text(b, "");
+    }
+    if !set_kind(blocks, at, kind) {
+        return false;
+    }
+    caret.text.clear();
+    caret.selection = (0, 0);
+    caret.place = Some(0);
+    caret.focus = true;
+    true
+}
+
 /// Puts a tag on the line the caret is in, or takes it off. To Do is a task list item;
 /// every other tag is a marker word at the start of the line ([`notecraft_model::Tag`]).
 /// Asking for the tag that is already there removes it, the way OneNote toggles a tag.
@@ -1242,6 +1287,7 @@ pub fn show_blocks(
                     if let Some(b) = blocks.get_mut(i) {
                         set_caret_text(b, &typed);
                     }
+                    markdown_shortcut(blocks, i, c);
                     changed.blocks = true;
                 }
                 let (enter, backspace, tab, shift, escape, up, down) = ui.input(|i| {
@@ -1479,6 +1525,7 @@ pub fn show_blocks(
                 if let Some(b) = blocks.get_mut(i) {
                     set_caret_text(b, &typed);
                 }
+                markdown_shortcut(blocks, i, c);
                 changed.blocks = true;
             }
             let (enter, backspace, tab, shift, escape, up, down) = ui.input(|i| {
@@ -2480,6 +2527,39 @@ pub fn round_trips(format: notecraft_model::PageFormat, body: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn markdown_typed_at_the_start_of_an_empty_line_turns_it() {
+        use super::*;
+        let cases = [
+            ("# ", "h1"),
+            ("### ", "h3"),
+            ("- ", "bullet"),
+            ("* ", "bullet"),
+            ("1. ", "number"),
+            ("12) ", "number"),
+            ("> ", "quote"),
+            ("[] ", "todo"),
+            ("```", "codeblock"),
+        ];
+        for (typed, kind) in cases {
+            let mut blocks = vec![Block::Paragraph(parse_inline(typed))];
+            let mut caret = Caret { block: 0, text: typed.to_string(), ..Caret::default() };
+            assert!(markdown_shortcut(&mut blocks, 0, &mut caret), "{typed:?}");
+            assert_eq!(block_kind(&blocks[0]), kind, "{typed:?}");
+            assert_eq!(caret.text, "", "{typed:?}: the marker is gone");
+            assert_eq!(caret.place, Some(0));
+        }
+        for typed in ["#", "####### ", "- words", "a - ", "1 ", "word ", ""] {
+            let mut blocks = vec![Block::Paragraph(parse_inline(typed))];
+            let mut caret = Caret { block: 0, text: typed.to_string(), ..Caret::default() };
+            assert!(!markdown_shortcut(&mut blocks, 0, &mut caret), "{typed:?} is left alone");
+            assert_eq!(caret.text, typed);
+        }
+        let mut heading = vec![Block::Heading { level: 1, spans: parse_inline("# ") }];
+        let mut caret = Caret { block: 0, text: "# ".into(), ..Caret::default() };
+        assert!(!markdown_shortcut(&mut heading, 0, &mut caret), "only a plain line is turned");
+    }
+
     use super::*;
     use notecraft_model::PageFormat;
 

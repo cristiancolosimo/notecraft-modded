@@ -3027,6 +3027,32 @@ fn scrolling_past_the_last_a4_sheet_adds_a_sheet() {
     review(&mut h, "a4-grown");
 }
 
+/// Markdown typed at the start of an empty line turns it into a heading, a bullet or a quote.
+#[test]
+fn markdown_typed_on_an_empty_line_turns_it() {
+    let (_t, mut app, s) = sample_app("ui-markdown-typing");
+    let page = s.md_page.to_string_lossy().to_string();
+    app.open_path(&page);
+    let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 800.0));
+    settle(&mut h);
+    ask(&mut h, "engine.execute", json!({"command": "page.save", "params": {"path": page.clone(), "body": "first line\n"}})).expect("body");
+    ask(&mut h, "ui.open", json!({"path": page})).expect("open");
+    settle(&mut h);
+    ask(&mut h, "ui.caret", json!({"block": 0})).expect("caret");
+    settle(&mut h);
+    for (typed, expect) in [("## ", "## "), ("> ", "> "), ("- ", "- ")] {
+        ask(&mut h, "ui.key", json!({"key": "End"})).ok();
+        ask(&mut h, "ui.key", json!({"key": "Enter"})).expect("new line");
+        settle(&mut h);
+        ask(&mut h, "ui.text", json!({"text": typed})).expect("type");
+        settle(&mut h);
+        ask(&mut h, "ui.text", json!({"text": "word"})).expect("type");
+        settle(&mut h);
+        let body = h.state().body().unwrap_or_default();
+        assert!(body.contains(&format!("\n{expect}word")), "{typed:?} became markup, the page reads:\n{body}");
+    }
+}
+
 /// The Home tab, drawn to the design: its controls are there and the styles, marks and lists act on the page.
 #[test]
 fn the_home_tab_has_its_groups_and_its_controls_work() {
