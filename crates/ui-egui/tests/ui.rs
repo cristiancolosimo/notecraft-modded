@@ -2981,7 +2981,7 @@ fn a_new_page_is_made_as_a4_sheets_or_with_no_end() {
         h.get_by_label(if a4 { "A4 sheets" } else { "Infinite scroll" }).click();
         settle(&mut h);
         review(&mut h, if a4 { "new-page-dialog-a4" } else { "new-page-dialog-endless" });
-        h.get_by_label("Create").click();
+        h.get_by_label("Create page").click();
         settle(&mut h);
         let dir = h
             .state()

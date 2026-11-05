@@ -795,7 +795,7 @@ fn open_action(ui: &mut Ui, label: &str, width: f32, height: f32, t: &Tokens, pr
 }
 
 /// Text of `size` wrapped to `wrap` points, its first baseline on `baseline`, lines 16 apart.
-fn wrapped(painter: &egui::Painter, x: f32, baseline: f32, text: &str, size: f32, colour: egui::Color32, wrap: f32) {
+pub(crate) fn wrapped(painter: &egui::Painter, x: f32, baseline: f32, text: &str, size: f32, colour: egui::Color32, wrap: f32) {
     let mut job = egui::text::LayoutJob::default();
     job.wrap.max_width = wrap;
     job.append(
