@@ -1689,7 +1689,10 @@ impl NoteCraftApp {
             ui.add_space(4.0);
         }
         let drag_on = is_page && ui.ctx().data(|d| d.get_temp::<bool>(Id::new("nav-drag-on"))).unwrap_or(false);
-        let (rect, resp) = ui.allocate_exact_size(vec2(width, height), if drag_on { Sense::click_and_drag() } else { Sense::click() });
+        // With a mouse a page is carried by dragging it. On a touch screen a drag is the list scrolling, so there a
+        // page is picked up by holding a finger on it for a moment.
+        let touch = ui.input(|i| i.has_touch_screen());
+        let (rect, resp) = ui.allocate_exact_size(vec2(width, height), if drag_on && !touch { Sense::click_and_drag() } else { Sense::click() });
         let painter = ui.painter_at(rect);
         let t = &self.tokens;
         // The rows on screen, for a page being dragged to find where it would land.
@@ -1698,6 +1701,18 @@ impl NoteCraftApp {
         });
         if drag_on && resp.drag_started() {
             ui.ctx().data_mut(|d| d.insert_temp(Id::new("nav-drag"), Some(node.path.clone())));
+        }
+        if drag_on && touch && resp.is_pointer_button_down_on() {
+            let (now, since, from, at) = ui.input(|i| (i.time, i.pointer.press_start_time(), i.pointer.press_origin(), i.pointer.latest_pos()));
+            if let (Some(since), Some(from), Some(at)) = (since, from, at)
+                && at.distance(from) < 10.0
+            {
+                if now - since >= 0.4 {
+                    ui.ctx().data_mut(|d| d.insert_temp(Id::new("nav-drag"), Some(node.path.clone())));
+                } else {
+                    ui.ctx().request_repaint_after(Duration::from_millis(60));
+                }
+            }
         }
         let being_dragged = ui.ctx().data(|d| d.get_temp::<Option<PathBuf>>(Id::new("nav-drag"))).flatten().is_some_and(|p| p == node.path);
         if lit {
@@ -1790,7 +1805,7 @@ impl NoteCraftApp {
         let enabled = ui.is_enabled();
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &node.info.title));
         let resp = resp.on_hover_text(self.shown(&node.path));
-        if resp.clicked() {
+        if resp.clicked() && !being_dragged {
             let pos = resp.interact_pointer_pos().unwrap_or_default();
             if has_kids && chevron_rect.expand2(vec2(2.0, 0.0)).contains(pos) {
                 acts.push(Act::Toggle(node.path.clone()));
@@ -4646,7 +4661,7 @@ impl NoteCraftApp {
             // A drag in a pane must not scroll it: in the page a drag moves a container,
             // and in the tree it is a click that slipped. The wheel and the bar still work.
             let scroll = egui::containers::scroll_area::ScrollSource {
-                drag: egui::containers::scroll_area::DragScroll::Never,
+                drag: egui::containers::scroll_area::DragScroll::OnTouch,
                 ..egui::containers::scroll_area::ScrollSource::default()
             };
             let room = (ui.available_height() - 72.0).max(60.0);
@@ -4847,8 +4862,10 @@ impl NoteCraftApp {
     /// sections) and then the pages of whichever section is chosen, the way OneNote splits
     /// them. The three-bar button in the top bar hides the first column.
     fn organiser_panes(&mut self, ui: &mut Ui, acts: &mut Vec<Act>) {
+        // A finger drags the lists to scroll them, except while a page is being carried: then it carries.
+        let dragging = ui.ctx().data(|d| d.get_temp::<Option<PathBuf>>(Id::new("nav-drag"))).flatten().is_some();
         let scroll = || egui::containers::scroll_area::ScrollSource {
-            drag: egui::containers::scroll_area::DragScroll::Never,
+            drag: if dragging { egui::containers::scroll_area::DragScroll::Never } else { egui::containers::scroll_area::DragScroll::OnTouch },
             ..egui::containers::scroll_area::ScrollSource::default()
         };
         let mut toggle = false;

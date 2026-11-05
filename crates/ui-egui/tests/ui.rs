@@ -3173,6 +3173,94 @@ fn the_language_is_chosen_in_options_and_remembered() {
     notecraft_ui_egui::i18n::set_language("en");
 }
 
+/// On a touch screen a finger drag over the pages scrolls the list; a page is picked up by holding the finger on it.
+#[test]
+fn on_a_touch_screen_the_pages_scroll_and_a_held_finger_carries_one() {
+    let (_t, mut app, s) = split_sample_app("ui-touch-pages");
+    app.open_path(&s.md_page.to_string_lossy());
+    let section = std::path::Path::new(&s.md_page).parent().expect("section").to_string_lossy().to_string();
+    let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 500.0));
+    settle(&mut h);
+    for n in 1..=30 {
+        ask(
+            &mut h,
+            "engine.execute",
+            json!({"command": "node.create", "params": {"parent": section.clone(), "kind": "page", "title": format!("Item {n:02}")}}),
+        )
+        .expect("page");
+    }
+    settle(&mut h);
+    // The window has seen a finger.
+    h.event(egui::Event::Touch {
+        device_id: egui::TouchDeviceId(0),
+        id: egui::TouchId(0),
+        phase: egui::TouchPhase::Start,
+        pos: egui::pos2(380.0, 330.0),
+        force: None,
+    });
+    h.event(egui::Event::Touch {
+        device_id: egui::TouchDeviceId(0),
+        id: egui::TouchId(0),
+        phase: egui::TouchPhase::End,
+        pos: egui::pos2(380.0, 330.0),
+        force: None,
+    });
+    settle(&mut h);
+    let order = |h: &mut Harness<'_, NoteCraftApp>| -> Vec<String> {
+        let tree = h.state().session().tree();
+        fn titles(nodes: &[notecraft_store::tree::Node], out: &mut Vec<String>, under: &str) {
+            for n in nodes {
+                if n.path.to_string_lossy() == under {
+                    out.extend(n.children.iter().map(|c| c.info.title.clone()));
+                }
+                titles(&n.children, out, under);
+            }
+        }
+        let mut out = Vec::new();
+        titles(tree, &mut out, &section);
+        out
+    };
+    let before = order(&mut h);
+    let item = h.get_by_label("Item 02").rect();
+    ask(&mut h, "ui.move", json!({"x": item.center().x, "y": item.center().y})).expect("move");
+    ask(&mut h, "ui.scroll", json!({"y": -100.0})).expect("wheel");
+    settle(&mut h);
+    ask(&mut h, "ui.scroll", json!({"y": 100.0})).expect("wheel back");
+    settle(&mut h);
+    let item = h.get_by_label("Item 02").rect();
+    // A quick swipe up: the list scrolls, nothing is carried.
+    ask(&mut h, "ui.press", json!({"x": item.center().x, "y": item.center().y + 40.0})).expect("press");
+    ask(&mut h, "ui.move", json!({"x": item.center().x, "y": item.center().y - 20.0})).expect("move");
+    ask(&mut h, "ui.move", json!({"x": item.center().x, "y": item.center().y - 80.0})).expect("move");
+    ask(&mut h, "ui.release", json!({"x": item.center().x, "y": item.center().y - 80.0})).expect("release");
+    settle(&mut h);
+    assert_eq!(order(&mut h), before, "a swipe does not move a page");
+    let moved = h.get_by_label("Item 02").rect();
+    assert!(moved.center().y < item.center().y - 10.0, "the list scrolled with the finger: {item:?} then {moved:?}");
+    review(&mut h, "touch-scrolled");
+    // Held still for a moment, a finger picks the page up; dropped at the top, it goes to the top.
+    ask(&mut h, "ui.scroll", json!({"y": 4000.0})).expect("back to the top");
+    settle(&mut h);
+    let last = h.get_by_label("Item 02").rect();
+    let third = h.get_by_label("Item 03").rect();
+    ask(&mut h, "ui.press", json!({"x": third.center().x, "y": third.center().y})).expect("press");
+    for _ in 0..12 {
+        pump(&mut h);
+        std::thread::sleep(std::time::Duration::from_millis(60));
+    }
+    review(&mut h, "touch-held");
+    ask(&mut h, "ui.move", json!({"x": last.center().x, "y": last.min.y - 4.0})).expect("carry");
+    ask(&mut h, "ui.release", json!({"x": last.center().x, "y": last.min.y - 4.0})).expect("drop");
+    settle(&mut h);
+    let after = order(&mut h);
+    assert_ne!(after, before, "the held page was carried");
+    assert_eq!(
+        after.iter().position(|t| t == "Item 03"),
+        Some(after.iter().position(|t| t == "Item 02").expect("item 2") - 1),
+        "and dropped before Item 02: {after:?}"
+    );
+}
+
 /// The Home tab, drawn to the design: its controls are there and the styles, marks and lists act on the page.
 #[test]
 fn the_home_tab_has_its_groups_and_its_controls_work() {
