@@ -3025,6 +3025,36 @@ fn scrolling_past_the_last_a4_sheet_adds_a_sheet() {
     let now = notecraft_store::page::sheet(std::path::Path::new(&page)).expect("sheet");
     assert!(now.as_deref().is_some_and(|v| v.starts_with("a4:")), "a sheet was added by scrolling: {now:?}");
     review(&mut h, "a4-grown");
+    // An empty sheet added by scrolling is taken away with its button, one at a time, down to what the page needs.
+    let count = || -> usize {
+        let v = notecraft_store::page::sheet(std::path::Path::new(&page)).expect("sheet").unwrap_or_default();
+        v.strip_prefix("a4:").and_then(|n| n.parse().ok()).unwrap_or(1)
+    };
+    let mut c = count();
+    assert!(c >= 2);
+    for _ in 0..8 {
+        // Scrolled up until the last sheet's corner is on screen (scrolling down past the foot would add a sheet).
+        for _ in 0..12 {
+            if h.query_all_by_label("Delete this sheet").next().is_some_and(|b| b.rect().max.y < 760.0 && b.rect().min.y > 250.0) {
+                break;
+            }
+            ask(&mut h, "ui.scroll", json!({"y": 250.0})).expect("up");
+            settle(&mut h);
+        }
+        let Some(button) = h.query_all_by_label("Delete this sheet").next() else { break };
+        button.click();
+        settle(&mut h);
+        let now = count();
+        assert_eq!(now, c - 1, "one sheet went");
+        c = now;
+    }
+    // What the page's own words need stays: a sheet that holds something has no button.
+    assert!(c >= 1, "the sheets the page needs stay");
+    for _ in 0..8 {
+        ask(&mut h, "ui.scroll", json!({"y": 250.0})).expect("up");
+        settle(&mut h);
+    }
+    assert_eq!(h.query_all_by_label("Delete this sheet").count(), 0, "and then there is no button left");
 }
 
 /// Markdown typed at the start of an empty line turns it into a heading, a bullet or a quote.
@@ -3259,6 +3289,90 @@ fn on_a_touch_screen_the_pages_scroll_and_a_held_finger_carries_one() {
         Some(after.iter().position(|t| t == "Item 02").expect("item 2") - 1),
         "and dropped before Item 02: {after:?}"
     );
+}
+
+/// A window that opens sweeps the recycle bins: what has waited longer than the setting allows is removed, the rest stays.
+#[test]
+fn what_waited_too_long_in_a_recycle_bin_is_removed_when_the_window_opens() {
+    let (_t, app, s) = sample_app("ui-bin-sweep");
+    let bin = s.notebook.canonicalize().expect("real").join(".notecraft/recycle-bin");
+    // Two pages of the sample go into the bin; one of them is back-dated 40 days, the default allows 30.
+    for page in [&s.md_page, &s.html_page] {
+        notecraft_store::recycle::delete(&s.notebook, page).expect("recycle");
+    }
+    let items = notecraft_store::recycle::list(&s.notebook).expect("list");
+    assert_eq!(items.len(), 2);
+    let old = &items[0];
+    let manifest = bin.join(&old.id).join("recycled.toml");
+    let before =
+        notecraft_model::time::iso_from_secs(notecraft_model::time::secs_from_iso(&notecraft_model::time::iso_now()).expect("now") - 40 * 86_400);
+    let text = std::fs::read_to_string(&manifest).expect("manifest");
+    let text =
+        text.lines().map(|l| if l.starts_with("deleted") { format!("deleted = \"{before}\"") } else { l.to_string() }).collect::<Vec<_>>().join("\n");
+    std::fs::write(&manifest, text).expect("back-date");
+    let mut h = harness(app, LIGHT);
+    settle(&mut h);
+    let left = notecraft_store::recycle::list(&s.notebook).expect("list");
+    assert_eq!(left.len(), 1, "the old one is gone, the new one waits");
+    assert_ne!(left[0].id, old.id);
+}
+
+/// A page dropped on a section in the notebooks column goes into that section, with the mouse and with a held finger.
+#[test]
+fn a_page_dropped_on_a_section_moves_there_with_the_mouse_and_with_a_finger() {
+    for finger in [false, true] {
+        let (_t, mut app, s) = split_sample_app(if finger { "ui-drop-finger" } else { "ui-drop-mouse" });
+        app.open_path(&s.md_page.to_string_lossy());
+        let section = std::path::Path::new(&s.md_page).parent().expect("section").to_string_lossy().to_string();
+        let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 800.0));
+        settle(&mut h);
+        ask(
+            &mut h,
+            "engine.execute",
+            json!({"command": "node.create", "params": {"parent": s.notebook.to_string_lossy(), "kind": "section", "title": "Elsewhere"}}),
+        )
+        .expect("section");
+        ask(&mut h, "engine.execute", json!({"command": "node.create", "params": {"parent": section.clone(), "kind": "page", "title": "Traveller"}}))
+            .expect("page");
+        settle(&mut h);
+        if finger {
+            for phase in [egui::TouchPhase::Start, egui::TouchPhase::End] {
+                h.event(egui::Event::Touch {
+                    device_id: egui::TouchDeviceId(0),
+                    id: egui::TouchId(0),
+                    phase,
+                    pos: egui::pos2(380.0, 330.0),
+                    force: None,
+                });
+            }
+            settle(&mut h);
+        }
+        let page = h.get_by_label("Traveller").rect();
+        let target = h.get_all_by_label("Elsewhere").next().expect("the section").rect();
+        ask(&mut h, "ui.press", json!({"x": page.center().x, "y": page.center().y})).expect("press");
+        if finger {
+            for _ in 0..12 {
+                pump(&mut h);
+                std::thread::sleep(std::time::Duration::from_millis(60));
+            }
+        }
+        for step in 1..=5_u8 {
+            let k = f32::from(step) / 5.0;
+            ask(&mut h, "ui.move", json!({"x": page.center().x + (target.center().x - page.center().x) * k, "y": page.center().y + (target.center().y - page.center().y) * k})).expect("move");
+        }
+        ask(&mut h, "ui.release", json!({"x": target.center().x, "y": target.center().y})).expect("release");
+        settle(&mut h);
+        let landed = h
+            .state()
+            .session()
+            .tree()
+            .iter()
+            .flat_map(|n| n.children.iter())
+            .find(|n| n.info.title == "Elsewhere")
+            .map(|n| n.children.iter().map(|c| c.info.title.clone()).collect::<Vec<_>>())
+            .unwrap_or_default();
+        assert_eq!(landed, ["Traveller"], "finger={finger}: the page is in the other section");
+    }
 }
 
 /// The Home tab, drawn to the design: its controls are there and the styles, marks and lists act on the page.

@@ -55,6 +55,8 @@ pub enum Act {
     SetCompactUi(bool),
     /// The language of the window: `en` or `it`.
     SetLanguage(String),
+    /// Empty what has been in a recycle bin more than this many days (0 for never).
+    SetRecycleDays(u32),
     /// Write this notebook to a ZIP.
     ExportNotebook(std::path::PathBuf),
     ResetPreferences,
@@ -94,6 +96,7 @@ pub fn show(
     show_perf: bool,
     fps_limit: u32,
     compact_ui: bool,
+    recycle_days: u32,
     t: &Tokens,
 ) -> Vec<Act> {
     let mut acts = Vec::new();
@@ -116,7 +119,7 @@ pub fn show(
                     "Open" => open_page(ui, recent, notebooks_folder, show_path, t, &mut acts),
                     "Sync" => sync_page(ui, sync, t, &mut acts),
                     "Export" => export_page(ui, notebooks, show_path, t, &mut acts),
-                    _ => options_page(ui, telemetry_root, telemetry_level, session_id, show_perf, fps_limit, compact_ui, t, &mut acts),
+                    _ => options_page(ui, telemetry_root, telemetry_level, session_id, show_perf, fps_limit, compact_ui, recycle_days, t, &mut acts),
                 }
             });
         });
@@ -907,6 +910,7 @@ fn options_page(
     show_perf: bool,
     fps_limit: u32,
     compact_ui: bool,
+    recycle_days: u32,
     t: &Tokens,
     acts: &mut Vec<Act>,
 ) {
@@ -1016,6 +1020,23 @@ fn options_page(
         flip.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, show_perf, "Performance counter"));
         if flip.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
             acts.push(Act::SetShowPerf(!show_perf));
+        }
+        // The recycle bin.
+        ui.add_space(20.0);
+        let card = options_card(ui, width, 130.0, t.faint, "Recycle bin", t);
+        setting(
+            &painter,
+            card,
+            79.0,
+            "Empty items after",
+            "What you delete waits in its notebook's recycle bin, and is removed for good after this long.",
+            540.0,
+            t,
+        );
+        let after = |days: u32| if days == 0 { "Never".to_string() } else { format!("{days} days") };
+        let choices: Vec<(String, String)> = [0, 7, 30, 90].iter().map(|d| (d.to_string(), after(*d))).collect();
+        if let Some(days) = select(ui, card, 68.0, "Empty items after", &after(recycle_days), &choices, t).and_then(|v| v.parse().ok()) {
+            acts.push(Act::SetRecycleDays(days));
         }
         // What is recorded here.
         ui.add_space(20.0);

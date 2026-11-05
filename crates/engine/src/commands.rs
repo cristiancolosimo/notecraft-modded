@@ -138,6 +138,18 @@ fn recycle_restore(s: &mut Session, p: &Params) -> Result<Output, EngineError> {
     Ok(Output::None)
 }
 
+fn recycle_empty(s: &mut Session, p: &Params) -> Result<Output, EngineError> {
+    let notebook = s.resolve(req(p, "notebook")?)?;
+    let days = match p.get("older_than_days") {
+        Some(v) if !v.trim().is_empty() => {
+            v.trim().parse::<u32>().map_err(|_| EngineError::BadParam("older_than_days must be a whole number".into()))?
+        }
+        _ => 0,
+    };
+    let now = notecraft_model::time::secs_from_iso(&notecraft_model::time::iso_now()).unwrap_or(0);
+    Ok(Output::Count(recycle::purge_older_than(&notebook, days, now)?))
+}
+
 fn recycle_purge(s: &mut Session, p: &Params) -> Result<Output, EngineError> {
     let notebook = s.resolve(req(p, "notebook")?)?;
     recycle::purge(&notebook, req(p, "id")?)?;
@@ -415,6 +427,13 @@ static REGISTRY: &[CommandSpec] = &[
         params: "notebook (required)\nid (required): an id returned by recycle.list",
         changes_tree: true,
         run: recycle_purge,
+    },
+    CommandSpec {
+        id: "recycle.empty",
+        label: "Empty a notebook's recycle bin, or what has been in it too long",
+        params: "notebook (required)\nolder_than_days (optional): only items that have been in the bin more than this many days; without it the whole bin is emptied",
+        changes_tree: false,
+        run: recycle_empty,
     },
     CommandSpec {
         id: "node.title",

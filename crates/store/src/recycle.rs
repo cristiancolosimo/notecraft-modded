@@ -172,6 +172,20 @@ pub fn purge(notebook: &Path, id: &str) -> Result<()> {
     crate::ops::remove_tree(&entry).map_err(|e| StoreError::io("purge", &entry, e))
 }
 
+/// Permanently removes every item that has been in the bin for more than `days` days (all of them for 0).
+/// Gives how many were removed. An item whose date cannot be read is left alone.
+pub fn purge_older_than(notebook: &Path, days: u32, now_secs: i64) -> Result<usize> {
+    let limit = now_secs - i64::from(days) * 86_400;
+    let mut gone = 0;
+    for item in list(notebook)? {
+        let old = days == 0 || notecraft_model::time::secs_from_iso(&item.deleted).is_some_and(|at| at <= limit);
+        if old && purge(notebook, &item.id).is_ok() {
+            gone += 1;
+        }
+    }
+    Ok(gone)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,5 +227,35 @@ mod tests {
         crate::ops::create_node(&section, "Page", NodeKind::Page, None, &settings).expect("replacement");
         assert!(restore(&notebook, &id).is_err());
         assert_eq!(list(&notebook).expect("still in bin").len(), 1);
+    }
+
+    #[test]
+    fn only_what_has_waited_long_enough_is_purged() {
+        let temp = crate::testing::TempDir::new("recycle-age");
+        let settings = Settings::at(temp.path().join("settings.toml"));
+        let notebook = crate::ops::create_notebook(temp.path(), "Notebook", None, &settings).expect("notebook");
+        let section = crate::ops::create_node(&notebook, "Section", NodeKind::Section, None, &settings).expect("section");
+        for title in ["Old", "New"] {
+            let page = crate::ops::create_node(&section, title, NodeKind::Page, None, &settings).expect("page");
+            delete(&notebook, &page).expect("recycle");
+        }
+        // Back-date one of the two by writing its manifest again, 40 days in the past.
+        let now = notecraft_model::time::secs_from_iso(&notecraft_model::time::iso_now()).expect("now");
+        let items = list(&notebook).expect("list");
+        let old = items.iter().find(|i| i.title == "Old").expect("old");
+        let manifest = bin(&notebook.canonicalize().expect("real")).join(&old.id).join("recycled.toml");
+        let text = std::fs::read_to_string(&manifest).expect("manifest");
+        let before = notecraft_model::time::iso_from_secs(now - 40 * 86_400);
+        let text = text
+            .lines()
+            .map(|l| if l.starts_with("deleted") { format!("deleted = \"{before}\"") } else { l.to_string() })
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&manifest, text).expect("back-date");
+        assert_eq!(purge_older_than(&notebook, 30, now).expect("purge"), 1);
+        let left = list(&notebook).expect("list");
+        assert_eq!(left.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), ["New"]);
+        assert_eq!(purge_older_than(&notebook, 0, now).expect("empty"), 1);
+        assert!(list(&notebook).expect("list").is_empty());
     }
 }

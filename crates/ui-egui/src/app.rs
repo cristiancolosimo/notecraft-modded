@@ -499,6 +499,11 @@ enum Dialog {
         notebook: PathBuf,
         items: Vec<notecraft_store::recycle::Recycled>,
     },
+    /// Everything in the bin, after asking.
+    EmptyRecycleBin {
+        notebook: PathBuf,
+        count: usize,
+    },
     PurgeRecycleItem {
         notebook: PathBuf,
         id: String,
@@ -643,6 +648,10 @@ pub struct NoteCraftApp {
     show_perf: bool,
     /// How the pages of a section are listed: manual (and then they can be dragged), name, created or modified.
     pages_sort: String,
+    /// Days a deleted item waits in its notebook's recycle bin before it is removed for good; 0 keeps them.
+    recycle_days: u32,
+    /// When the bins were last looked at for what is too old.
+    bins_swept: Option<Instant>,
     /// New pages are made as A4 sheets (true) or as a page with no end (false); asked in the new page's dialog.
     new_page_a4: bool,
     perf: crate::perf::Perf,
@@ -793,6 +802,8 @@ impl NoteCraftApp {
             files: None,
             show_perf: settings_for_sync.get("show_perf").as_deref() == Some("true"),
             new_page_a4: settings_for_sync.get("new_page_sheet").as_deref() == Some("a4"),
+            recycle_days: settings_for_sync.get("recycle_days").and_then(|v| v.parse().ok()).unwrap_or(30),
+            bins_swept: None,
             pages_sort: settings_for_sync
                 .get("pages_sort")
                 .filter(|v| ["name", "created", "modified"].contains(&v.as_str()))
@@ -2122,6 +2133,29 @@ impl NoteCraftApp {
         (create && !cancel, cancel)
     }
 
+    /// Removes what has been in a notebook's recycle bin longer than the setting allows. Looked at once when the
+    /// window starts and then every hour, so a window left open for days still empties its bins.
+    fn sweep_recycle_bins(&mut self) {
+        if self.bins_swept.is_some_and(|at| at.elapsed() < Duration::from_secs(3600)) {
+            return;
+        }
+        self.bins_swept = Some(Instant::now());
+        if self.recycle_days == 0 {
+            return;
+        }
+        let days = self.recycle_days.to_string();
+        let notebooks: Vec<PathBuf> = self.session.tree().iter().map(|n| n.path.clone()).collect();
+        let mut gone = 0;
+        for nb in notebooks {
+            if let Some(Output::Count(n)) = self.run("recycle.empty", &params(&[("notebook", &path_str(&nb)), ("older_than_days", &days)])) {
+                gone += n;
+            }
+        }
+        if gone > 0 {
+            log::info!("recycle bins: {gone} items older than {days} days removed");
+        }
+    }
+
     /// Lays a page just made out as A4 sheets when that is what new pages are asked to be.
     fn give_sheet(&mut self, dir: &Path) {
         if self.new_page_a4 {
@@ -2567,6 +2601,7 @@ impl NoteCraftApp {
                 self.show_perf,
                 self.fps_limit,
                 self.compact_ui,
+                self.recycle_days,
                 &tokens,
             );
         });
@@ -2645,6 +2680,11 @@ impl NoteCraftApp {
                         self.sync.failed = true;
                     }
                 },
+                backstage::Act::SetRecycleDays(days) => {
+                    self.recycle_days = days;
+                    let _ = self.session.settings.set("recycle_days", &days.to_string());
+                    self.bins_swept = None;
+                }
                 backstage::Act::SetLanguage(code) => {
                     crate::i18n::set_language(&code);
                     let _ = self.session.settings.set("language", &code);
@@ -5130,7 +5170,7 @@ impl NoteCraftApp {
         // A sheet was added by scrolling: the count goes into the page.
         if let Some((dir, n)) = self.editor.as_mut().and_then(|e| std::mem::take(&mut e.sheets_to_save).then(|| (e.dir.clone(), e.sheets))) {
             self.run("page.sheet", &params(&[("path", &path_str(&dir)), ("sheet", &format!("a4:{n}"))]));
-            self.say(format!("Sheet {n} added"));
+            self.say(format!("Sheets: {n}"));
         }
         if !self.icon_recovery_suppressed
             && self.dialog.is_none()
@@ -5441,6 +5481,34 @@ impl NoteCraftApp {
                                         crate::inkpad::show(ui, body, pad, pen, pressure, !pen_only || stylus_in_contact, &tokens, zoom_scale);
                                     if crate::inkpad::take_switch_to_pick(ui.ctx()) {
                                         page_acts.push(ribbon::Act::InkPointer(ribbon::Pointer::Pick));
+                                    }
+                                }
+                                // A sheet that is empty and was only added by scrolling can be taken away again: its corner has a button.
+                                let needed = crate::inkpad::a4_sheets_needed((far.0 * zoom_scale, far.1 * zoom_scale), used, ui.max_rect().width());
+                                if ed.sheet_a4 && ed.sheets_drawn > needed.max(1) {
+                                    let (_, pitch) = crate::inkpad::a4_sheet(body.width());
+                                    let top_of_last = body.min.y + pitch * (ed.sheets_drawn as f32 - 1.0);
+                                    let corner = egui::Rect::from_min_size(egui::pos2(body.max.x - 44.0, top_of_last + 12.0), vec2(32.0, 32.0));
+                                    let press = ui.interact(corner, ui.id().with("delete-sheet"), Sense::click());
+                                    let painter = ui.painter();
+                                    painter.circle_filled(corner.center(), 16.0, if press.hovered() { tokens.row_hover } else { tokens.panel });
+                                    painter.circle_stroke(corner.center(), 16.0, egui::Stroke::new(1.0, tokens.muted));
+                                    crate::svgicon::paint(
+                                        painter,
+                                        corner.min + vec2(6.0, 6.0),
+                                        20.0,
+                                        &[crate::svgicon::Prim::Path("M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3")],
+                                        tokens.text,
+                                    );
+                                    let enabled = ui.is_enabled();
+                                    press.widget_info(move || egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "Delete this sheet"));
+                                    if press
+                                        .on_hover_text(crate::i18n::tr("Delete this sheet"))
+                                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                        .clicked()
+                                    {
+                                        ed.sheets = ed.sheets_drawn - 1;
+                                        ed.sheets_to_save = true;
                                     }
                                 }
                                 // The page's own right-click menu. No widget is laid
@@ -6486,6 +6554,7 @@ impl NoteCraftApp {
             }
             Dialog::RecycleBin { notebook, items } => {
                 let mut restore: Option<String> = None;
+                let mut empty = false;
                 let mut purge: Option<(String, String)> = None;
                 egui::Window::new("Notebook recycle bin")
                     .collapsible(false)
@@ -6515,17 +6584,47 @@ impl NoteCraftApp {
                                 }
                             });
                         }
-                        if modal_button(ui, &self.tokens, "Close", false).clicked() {
-                            keep = false;
-                        }
+                        ui.horizontal(|ui| {
+                            if modal_button(ui, &self.tokens, "Close", false).clicked() {
+                                keep = false;
+                            }
+                            if !items.is_empty() && modal_button(ui, &self.tokens, "Empty the bin", true).clicked() {
+                                empty = true;
+                            }
+                        });
                     });
-                if let Some(id) = restore {
+                if empty {
+                    next = Dialog::EmptyRecycleBin { notebook: notebook.clone(), count: items.len() };
+                } else if let Some(id) = restore {
                     if self.run("recycle.restore", &params(&[("notebook", &path_str(notebook)), ("id", &id)])).is_some() {
                         self.say("Restored to the original location");
                         keep = false;
                     }
                 } else if let Some((id, title)) = purge {
                     next = Dialog::PurgeRecycleItem { notebook: notebook.clone(), id, title };
+                }
+            }
+            Dialog::EmptyRecycleBin { notebook, count } => {
+                let mut go = false;
+                egui::Window::new("Empty the bin")
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(Align2::CENTER_CENTER, vec2(0.0, self.dialog_lift))
+                    .show(ctx, |ui| {
+                        ui.label(crate::i18n::tr_dyn(&format!("Permanently delete all {count} items in the recycle bin?")));
+                        ui.colored_label(self.tokens.warn, crate::i18n::tr("This cannot be undone."));
+                        ui.horizontal(|ui| {
+                            if modal_button(ui, &self.tokens, "Cancel", false).clicked() {
+                                keep = false;
+                            }
+                            if modal_button(ui, &self.tokens, "Delete permanently", true).clicked() {
+                                go = true;
+                            }
+                        });
+                    });
+                if go && self.run("recycle.empty", &params(&[("notebook", &path_str(notebook))])).is_some() {
+                    self.say("Emptied the recycle bin");
+                    keep = false;
                 }
             }
             Dialog::PurgeRecycleItem { notebook, id, title } => {
@@ -7019,6 +7118,7 @@ impl NoteCraftApp {
         self.clipboard_keys(ctx);
         self.poll_control(ctx);
         self.poll_import(ctx);
+        self.sweep_recycle_bins();
         self.poll_sync(ctx);
         // The ink's journal is folded into its file in the background; wake when it is time to.
         if let Some(wait) = self.pad.as_mut().and_then(|pad| pad.maintain()) {

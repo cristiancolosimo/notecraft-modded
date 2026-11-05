@@ -16,6 +16,27 @@ pub fn iso_from_secs(secs: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem % 3600 / 60, rem % 60)
 }
 
+/// Seconds since 1970-01-01 of a timestamp written by [`iso_from_secs`], or `None` for any other text.
+pub fn secs_from_iso(iso: &str) -> Option<i64> {
+    let b = iso.as_bytes();
+    if b.len() != 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[13] != b':' || b[16] != b':' || b[19] != b'Z' {
+        return None;
+    }
+    let n = |a: usize, z: usize| iso.get(a..z)?.parse::<i64>().ok();
+    let (y, m, d) = (n(0, 4)?, n(5, 7)?, n(8, 10)?);
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    // Howard Hinnant's days_from_civil, the inverse of `civil_from_days`.
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 86_400 + n(11, 13)? * 3600 + n(14, 16)? * 60 + n(17, 19)?)
+}
+
 /// Days since 1970-01-01 to (year, month, day). Howard Hinnant's algorithm.
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
@@ -135,5 +156,13 @@ mod tests {
         let n = iso_now();
         assert_eq!(n.len(), 20);
         assert!(n.ends_with('Z'));
+    }
+
+    #[test]
+    fn a_timestamp_reads_back_to_the_same_seconds() {
+        for secs in [0_i64, 86_399, 1_000_000_000, 1_793_900_000, 4_102_444_800] {
+            assert_eq!(secs_from_iso(&iso_from_secs(secs)), Some(secs));
+        }
+        assert_eq!(secs_from_iso("tomorrow"), None);
     }
 }

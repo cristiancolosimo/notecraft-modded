@@ -86,6 +86,15 @@ Parameters:
 - notebook (required)
 - id (required): an id returned by recycle.list
 
+## `recycle.empty`
+
+Empty a notebook's recycle bin, or what has been in it too long.
+
+Parameters:
+
+- notebook (required)
+- older_than_days (optional): only items that have been in the bin more than this many days; without it the whole bin is emptied
+
 ## `node.title`
 
 Rename the title of a node (changes the tree).

@@ -186,6 +186,14 @@ pub fn canvas(far: (f32, f32), used: f32, view: egui::Vec2, column: f32, a4: boo
     vec2(width.max(column), height)
 }
 
+/// How many A4 sheets the words and the ink need, whatever sheets were added by scrolling past them.
+pub fn a4_sheets_needed(far: (f32, f32), used: f32, column: f32) -> usize {
+    let (_, pitch) = a4_sheet(column);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let n = (canvas(far, used, vec2(0.0, 0.0), column, true, 0).y / pitch).round().max(1.0) as usize;
+    n
+}
+
 /// The gap between two A4 sheets, in points.
 pub const SHEET_GAP: f32 = 20.0;
 
@@ -1287,6 +1295,8 @@ mod tests {
         let (sheet, pitch) = a4_sheet(column);
         assert_eq!(canvas((0.0, 0.0), 100.0, view, column, true, 0), vec2(column, pitch));
         assert_eq!(canvas((0.0, 0.0), 100.0, view, column, true, 3), vec2(column, 3.0 * pitch), "sheets scrolled down to are kept");
+        assert_eq!(a4_sheets_needed((0.0, 0.0), 100.0, column), 1);
+        assert_eq!(a4_sheets_needed((0.0, sheet + 10.0), 100.0, column), 2);
         assert_eq!(canvas((5000.0, sheet + 10.0), 100.0, view, column, true, 0), vec2(column, 2.0 * pitch));
         // At the foot of a sheet there is already the next one to write on.
         assert_eq!(canvas((0.0, sheet * 0.9), 100.0, view, column, true, 0).y, 2.0 * pitch);

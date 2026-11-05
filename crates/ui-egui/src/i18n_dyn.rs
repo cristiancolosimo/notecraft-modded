@@ -4,7 +4,7 @@
     ("Opening {}", "Apertura di {}"),
     ("Opened {} in the browser", "Aperto {} nel browser"),
     ("Saved {}", "Salvato {}"),
-    ("Sheet {} added", "Foglio {} aggiunto"),
+    ("Sheets: {}", "Fogli: {}"),
     ("Page {}", "Pagina {}"),
     ("Theme {}", "Tema {}"),
     ("Theme: {}", "Tema: {}"),
@@ -69,4 +69,5 @@
     ("Open {} notebook", "Apri il blocco note {}"),
     ("Add {} ({} more)", "Aggiungi {} ({} in più)"),
     ("Add inside this {}", "Aggiungi dentro questo elemento: {}"),
+    ("Permanently delete all {} items in the recycle bin?", "Eliminare definitivamente tutti i {} elementi del cestino?"),
 ]
