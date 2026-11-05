@@ -613,6 +613,8 @@ pub struct NoteCraftApp {
     show_perf: bool,
     /// How the pages of a section are listed: manual (and then they can be dragged), name, created or modified.
     pages_sort: String,
+    /// New pages are made as A4 sheets (true) or as a page with no end (false); asked in the new page's dialog.
+    new_page_a4: bool,
     perf: crate::perf::Perf,
     /// Frames a second the window may draw at most; 0 is no cap.
     fps_limit: u32,
@@ -759,6 +761,7 @@ impl NoteCraftApp {
             media: None,
             files: None,
             show_perf: settings_for_sync.get("show_perf").as_deref() == Some("true"),
+            new_page_a4: settings_for_sync.get("new_page_sheet").as_deref() == Some("a4"),
             pages_sort: settings_for_sync
                 .get("pages_sort")
                 .filter(|v| ["name", "created", "modified"].contains(&v.as_str()))
@@ -1582,6 +1585,7 @@ impl NoteCraftApp {
                 // No title: the page is created genuinely untitled, like a new OneNote page.
                 // "Untitled page" is only ever the display fallback, never real content.
                 if let Some(Output::Path(dir)) = self.run("node.create", &params(&[("parent", &path), ("kind", "page"), ("order", &order)])) {
+                    self.give_sheet(&dir);
                     self.open_page(&dir);
                     self.say("New page");
                 }
@@ -1851,6 +1855,13 @@ impl NoteCraftApp {
             for c in node.children.iter().filter(|c| pages || c.info.kind != NodeKind::Page) {
                 self.draw_row(ui, c, depth + 1, acts, pages);
             }
+        }
+    }
+
+    /// Lays a page just made out as A4 sheets when that is what new pages are asked to be.
+    fn give_sheet(&mut self, dir: &Path) {
+        if self.new_page_a4 {
+            self.run("page.sheet", &params(&[("path", &path_str(dir)), ("sheet", "a4")]));
         }
     }
 
@@ -5791,6 +5802,14 @@ impl NoteCraftApp {
                         let what = if *kind == NodeKind::Page { "Format for this page" } else { "Default format for pages below" };
                         ui.label(what);
                         format_picker(ui, format);
+                        if *kind == NodeKind::Page {
+                            ui.add_space(6.0);
+                            ui.label("Page type");
+                            ui.horizontal(|ui| {
+                                ui.selectable_value(&mut self.new_page_a4, false, "Infinite scroll").on_hover_text("One page with no end");
+                                ui.selectable_value(&mut self.new_page_a4, true, "A4 sheets").on_hover_text("Sheets that grow as you scroll down");
+                            });
+                        }
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
                             if modal_button(ui, &self.tokens, "Cancel", false).clicked() {
@@ -5811,6 +5830,8 @@ impl NoteCraftApp {
                     if let Some(Output::Path(dir)) = self.run("node.create", &p) {
                         self.open.insert(parent.clone());
                         if *kind == NodeKind::Page {
+                            let _ = self.session.settings.set("new_page_sheet", if self.new_page_a4 { "a4" } else { "none" });
+                            self.give_sheet(&dir);
                             self.open_page(&dir);
                         }
                         self.say("Created");

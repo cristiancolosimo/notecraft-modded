@@ -2965,6 +2965,39 @@ fn pages_are_reordered_and_moved_by_dragging() {
     assert_eq!(order(&mut h), ["Third page", "Format ideas", "Second page"], "the page went to the top");
 }
 
+/// The new page's type is chosen when it is made: A4 sheets or a page with no end.
+#[test]
+fn a_new_page_is_made_as_a4_sheets_or_with_no_end() {
+    let (_t, mut app, s) = split_sample_app("ui-page-type");
+    app.open_path(&s.md_page.to_string_lossy());
+    let section = std::path::Path::new(&s.md_page).parent().expect("section").to_path_buf();
+    let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 800.0));
+    settle(&mut h);
+    for (title, a4) in [("Sheets page", true), ("Endless page", false)] {
+        h.get_by_label("New page").click();
+        settle(&mut h);
+        let field = h.get_all_by_role(egui::accesskit::Role::TextInput).last().expect("the title field");
+        field.type_text(title);
+        h.get_by_label(if a4 { "A4 sheets" } else { "Infinite scroll" }).click();
+        settle(&mut h);
+        review(&mut h, if a4 { "new-page-dialog-a4" } else { "new-page-dialog-endless" });
+        h.get_by_label("Create").click();
+        settle(&mut h);
+        let dir = h
+            .state()
+            .session()
+            .tree()
+            .iter()
+            .flat_map(|n| n.children.iter())
+            .flat_map(|n| n.children.iter())
+            .find(|n| n.info.title == title)
+            .map(|n| n.path.clone());
+        let dir = dir.unwrap_or_else(|| panic!("{title} was made in {}", section.display()));
+        let sheet = notecraft_store::page::sheet(&dir).expect("sheet");
+        assert_eq!(sheet.as_deref(), if a4 { Some("a4") } else { None }, "{title}");
+    }
+}
+
 /// The Home tab, drawn to the design: its controls are there and the styles, marks and lists act on the page.
 #[test]
 fn the_home_tab_has_its_groups_and_its_controls_work() {
