@@ -2998,6 +2998,35 @@ fn a_new_page_is_made_as_a4_sheets_or_with_no_end() {
     }
 }
 
+/// On an A4 page, scrolling on past the foot of the last sheet makes the next sheet, and the count is kept in the page.
+#[test]
+fn scrolling_past_the_last_a4_sheet_adds_a_sheet() {
+    let (_t, mut app, s) = sample_app("ui-a4-grow");
+    let page = s.md_page.to_string_lossy().to_string();
+    app.open_path(&page);
+    let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 800.0));
+    settle(&mut h);
+    ask(&mut h, "engine.execute", json!({"command": "page.sheet", "params": {"path": page.clone(), "sheet": "a4"}})).expect("a4");
+    ask(&mut h, "ui.open", json!({"path": page.clone()})).expect("reopen");
+    settle(&mut h);
+    ask(&mut h, "ui.move", json!({"x": 800.0, "y": 500.0})).expect("pointer over the page");
+    settle(&mut h);
+    assert_eq!(notecraft_store::page::sheet(std::path::Path::new(&page)).expect("sheet").as_deref(), Some("a4"), "one sheet to begin with");
+    for _ in 0..80 {
+        ask(&mut h, "ui.scroll", json!({"y": -400.0})).expect("scroll");
+        for _ in 0..4 {
+            pump(&mut h);
+        }
+        if notecraft_store::page::sheet(std::path::Path::new(&page)).expect("sheet").as_deref() != Some("a4") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let now = notecraft_store::page::sheet(std::path::Path::new(&page)).expect("sheet");
+    assert!(now.as_deref().is_some_and(|v| v.starts_with("a4:")), "a sheet was added by scrolling: {now:?}");
+    review(&mut h, "a4-grown");
+}
+
 /// The Home tab, drawn to the design: its controls are there and the styles, marks and lists act on the page.
 #[test]
 fn the_home_tab_has_its_groups_and_its_controls_work() {

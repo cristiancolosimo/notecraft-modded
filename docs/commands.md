@@ -164,7 +164,7 @@ How a page's drawing is laid out: A4 sheets, or a page with no end.
 Parameters:
 
 - path (required): the page
-- sheet (optional): a4 for separate A4 sheets, or none for the page with no end. Without it, the current layout is reported
+- sheet (optional): a4 for separate A4 sheets (a4:N for N of them), or none for the page with no end. Without it, the current layout is reported
 
 ## `page.columns`
 

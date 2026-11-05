@@ -262,13 +262,16 @@ fn page_sheet(s: &mut Session, p: &Params) -> Result<Output, EngineError> {
     let Some(want) = p.get("sheet") else {
         return Ok(Output::Text(page::sheet(&path)?.unwrap_or_else(|| "none".into())));
     };
-    let kept = match want.trim() {
+    let want = want.trim();
+    let kept = match want {
         "" | "none" => None,
-        "a4" => Some("a4"),
-        other => return Err(EngineError::BadParam(format!("'{other}' is not a sheet layout: a4 or none"))),
+        "a4" => Some(want.to_string()),
+        // `a4:N`: N sheets, as many as the writer scrolled down to make.
+        other if other.strip_prefix("a4:").and_then(|n| n.parse::<u16>().ok()).is_some_and(|n| n >= 1) => Some(other.to_string()),
+        other => return Err(EngineError::BadParam(format!("'{other}' is not a sheet layout: a4, a4:N or none"))),
     };
-    page::set_sheet(&path, kept)?;
-    Ok(Output::Text(kept.unwrap_or("none").to_string()))
+    page::set_sheet(&path, kept.as_deref())?;
+    Ok(Output::Text(kept.unwrap_or_else(|| "none".to_string())))
 }
 
 fn page_columns(s: &mut Session, p: &Params) -> Result<Output, EngineError> {
@@ -471,7 +474,7 @@ color (optional): purple, blue, teal, green, yellow, orange, red, magenta, gray,
         id: "page.sheet",
         label: "How a page's drawing is laid out: A4 sheets, or a page with no end",
         params: "path (required): the page
-sheet (optional): a4 for separate A4 sheets, or none for the page with no end. Without it, the current layout is reported",
+sheet (optional): a4 for separate A4 sheets (a4:N for N of them), or none for the page with no end. Without it, the current layout is reported",
         changes_tree: false,
         run: page_sheet,
     },

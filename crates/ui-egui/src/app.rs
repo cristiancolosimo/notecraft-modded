@@ -87,6 +87,15 @@ fn modal_button_enabled(ui: &mut Ui, tokens: &Tokens, label: &str, primary: bool
     )
 }
 
+/// Whether a page is laid out as A4 sheets, and how many it is meant to have: `a4` is one, `a4:3` is three.
+fn sheet_layout(dir: &Path) -> (bool, usize) {
+    match notecraft_store::page::sheet(dir).ok().flatten().as_deref() {
+        Some("a4") => (true, 1),
+        Some(v) => v.strip_prefix("a4:").and_then(|n| n.parse().ok()).map_or((false, 0), |n| (true, n)),
+        None => (false, 0),
+    }
+}
+
 fn params(pairs: &[(&str, &str)]) -> Params {
     pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
 }
@@ -308,6 +317,12 @@ struct Editor {
     colour: Option<notecraft_model::NodeColor>,
     /// The page's drawing is laid out as separate A4 sheets, not as a page with no end.
     sheet_a4: bool,
+    /// How many sheets it has at least: the ones scrolled down to are kept, though nothing is on them yet.
+    sheets: usize,
+    /// How many sheets were drawn last frame.
+    sheets_drawn: usize,
+    /// A sheet was added by scrolling, and the count is still to be written into the page.
+    sheets_to_save: bool,
     /// What the page looked like before each change, so a change can be taken back.
     history: crate::history::History,
     /// The ink files in the page's folder. The folder is what decides: the page's own
@@ -1235,7 +1250,10 @@ impl NoteCraftApp {
                 ink_files: notecraft_store::page::ink_files(dir),
                 paper: appearance.0,
                 colour: appearance.1,
-                sheet_a4: notecraft_store::page::sheet(dir).ok().flatten().as_deref() == Some("a4"),
+                sheet_a4: sheet_layout(dir).0,
+                sheets: sheet_layout(dir).1,
+                sheets_drawn: 0,
+                sheets_to_save: false,
                 history: crate::history::History::new(crate::history::Step::new(first.0, first.1, first.2, None, crate::history::Kind::Edit)),
                 origin: egui::Pos2::ZERO,
             });
@@ -3155,6 +3173,7 @@ impl NoteCraftApp {
                     return;
                 };
                 ed.sheet_a4 = on;
+                ed.sheets = usize::from(on);
                 let path = path_str(&ed.dir);
                 self.run("page.sheet", &params(&[("path", path.as_str()), ("sheet", if on { "a4" } else { "none" })]));
             }
@@ -4763,6 +4782,11 @@ impl NoteCraftApp {
     }
 
     fn editor_ui(&mut self, ui: &mut Ui) {
+        // A sheet was added by scrolling: the count goes into the page.
+        if let Some((dir, n)) = self.editor.as_mut().and_then(|e| std::mem::take(&mut e.sheets_to_save).then(|| (e.dir.clone(), e.sheets))) {
+            self.run("page.sheet", &params(&[("path", &path_str(&dir)), ("sheet", &format!("a4:{n}"))]));
+            self.say(format!("Sheet {n} added"));
+        }
         if !self.icon_recovery_suppressed
             && self.dialog.is_none()
             && let Some(ed) = self.editor.as_ref()
@@ -5033,8 +5057,14 @@ impl NoteCraftApp {
                                 // The canvas grows with the ink, down and to the right, without
                                 // a limit: the page is scrolled both ways to reach it.
                                 let far = pad.as_ref().map(|p| p.far()).unwrap_or((0.0, 0.0));
-                                let size =
-                                    crate::inkpad::canvas((far.0 * zoom_scale, far.1 * zoom_scale), used, view, ui.max_rect().width(), ed.sheet_a4);
+                                let size = crate::inkpad::canvas(
+                                    (far.0 * zoom_scale, far.1 * zoom_scale),
+                                    used,
+                                    view,
+                                    ui.max_rect().width(),
+                                    ed.sheet_a4,
+                                    ed.sheets,
+                                );
                                 let want = size.y;
                                 if want > used {
                                     ui.allocate_space(vec2(size.x, want - used));
@@ -5046,6 +5076,7 @@ impl NoteCraftApp {
                                     // next; the gap is a tinted band, light enough that words running across it stay
                                     // readable.
                                     let (sheet, pitch) = crate::inkpad::a4_sheet(body.width());
+                                    ed.sheets_drawn = (body.height() / pitch).round().max(1.0) as usize;
                                     let painter = ui.painter_at(body.expand(2.0));
                                     let edge = egui::Stroke::new(2.0, tokens.muted);
                                     let mut y = body.min.y;
@@ -5107,6 +5138,19 @@ impl NoteCraftApp {
                         }
                     });
                 });
+                // Scrolling on past the foot of the last A4 sheet makes the next one.
+                if ed.sheet_a4 {
+                    let at_foot = shown.state.offset.y + shown.inner_rect.height() >= shown.content_size.y - 2.0;
+                    let down = ui.input(|i| i.raw.events.iter().any(|e| matches!(e, egui::Event::MouseWheel { delta, .. } if delta.y < 0.0)))
+                        && ui.rect_contains_pointer(shown.inner_rect);
+                    let now = ui.input(|i| i.time);
+                    let last = ui.ctx().data(|d| d.get_temp::<f64>(Id::new("sheet-added-at"))).unwrap_or(-1.0);
+                    if at_foot && down && now - last > 0.45 {
+                        ed.sheets = ed.sheets_drawn.max(1) + 1;
+                        ed.sheets_to_save = true;
+                        ui.ctx().data_mut(|d| d.insert_temp(Id::new("sheet-added-at"), now));
+                    }
+                }
                 ui.ctx().data_mut(|d| {
                     d.insert_temp(Id::new("preview-offset"), shown.state.offset);
                     d.insert_temp(Id::new("preview-view"), shown.inner_rect);
