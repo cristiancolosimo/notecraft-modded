@@ -270,6 +270,68 @@ pub fn set_color(dir: &Path, color: Option<NodeColor>) -> Result<()> {
     write_atomic(&file, &out)
 }
 
+/// Writes `order` into a node's own file: a page's head, or a container's `_node.toml`.
+fn write_order(dir: &Path, order: u32) -> Result<()> {
+    if let Some((format, file)) = page_file(dir) {
+        let text = fs::read_to_string(&file).map_err(|e| StoreError::io("read", &file, e))?;
+        let out = match format {
+            PageFormat::Html => html::replace_between(&text, "name=\"notecraft:order\" content=\"", "\"", &order.to_string()),
+            PageFormat::Cmgfm => {
+                let (front, rest) = frontmatter::split_front(&text);
+                format!("{}{rest}", kv::replace_line(&front, "order:", &format!("order: {order}")))
+            }
+        };
+        return write_atomic(&file, &out);
+    }
+    let file = dir.join("_node.toml");
+    let text = fs::read_to_string(&file).map_err(|_| StoreError::NotFound(format!("{} is not a NoteCraft folder", dir.display())))?;
+    let line = format!("order = {order}");
+    let out = if text.lines().any(|l| l.trim_start().starts_with("order =")) {
+        kv::replace_line(&text, "order =", &line)
+    } else {
+        format!("{text}{}{line}\n", if text.ends_with('\n') { "" } else { "\n" })
+    };
+    write_atomic(&file, &out)
+}
+
+/// Puts `path` in `parent`, just before the sibling `before` (at the end when there is none), and
+/// numbers the siblings ten apart again. `parent` may be the node's own parent, which reorders
+/// it, or another container that can hold it, which moves it there. Returns where the node is now.
+pub fn place(path: &Path, parent: &Path, before: Option<&Path>) -> Result<PathBuf> {
+    let info = read_node(path).ok_or_else(|| StoreError::NotFound(format!("{} is not a notebook, section, group or page", path.display())))?;
+    let parent_info =
+        read_node(parent).ok_or_else(|| StoreError::NotFound(format!("{} is not a notebook, section, group or page", parent.display())))?;
+    if !parent_info.kind.may_contain().contains(&info.kind) {
+        return Err(StoreError::invalid(format!(
+            "a {} cannot contain a {}",
+            parent_info.kind.label().to_lowercase(),
+            info.kind.label().to_lowercase()
+        )));
+    }
+    if parent.starts_with(path) {
+        return Err(StoreError::invalid("a node cannot be moved into itself"));
+    }
+    let target = if path.parent() == Some(parent) {
+        path.to_path_buf()
+    } else {
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let target = unique_child(parent, &name);
+        fs::rename(path, &target).map_err(|e| StoreError::io("move", path, e))?;
+        target
+    };
+    let anchor = before.map(|b| if b == path { target.clone() } else { b.to_path_buf() });
+    let mut siblings: Vec<PathBuf> = child_dirs(parent).into_iter().filter(|c| *c != target).collect();
+    let at = anchor.and_then(|b| siblings.iter().position(|c| *c == b)).unwrap_or(siblings.len());
+    siblings.insert(at, target.clone());
+    for (i, dir) in siblings.iter().enumerate() {
+        let order = u32::try_from(i + 1).unwrap_or(u32::MAX).saturating_mul(10);
+        if read_node(dir).map(|n| n.order) != Some(order) {
+            write_order(dir, order)?;
+        }
+    }
+    Ok(target)
+}
+
 /// Changes the title of a node. The folder name is not changed.
 ///
 /// A new page is written with its title in two places: where the page records it, and as
@@ -411,6 +473,35 @@ mod tests {
             let text = fs::read_to_string(&file).expect("read");
             assert!(text.contains("My own heading"), "{format:?}: a heading of their own is left alone:\n{text}");
             assert!(text.contains("Third name"), "{format:?}: while the title still changes:\n{text}");
+        }
+    }
+
+    /// A page can be put in front of another, and moved to another section, in both formats.
+    #[test]
+    fn a_page_is_reordered_and_moved() {
+        for format in [PageFormat::Html, PageFormat::Cmgfm] {
+            let t = TempDir::new(&format!("place-{}", format.id()));
+            let s = settings(&t);
+            let nb = create_notebook(&root(&t), "Book", Some(format), &s).expect("notebook");
+            let one = create_node(&nb, "One", NodeKind::Section, Some(format), &s).expect("section");
+            let two = create_node(&nb, "Two", NodeKind::Section, Some(format), &s).expect("section");
+            let a = create_node(&one, "A", NodeKind::Page, Some(format), &s).expect("a");
+            let b = create_node(&one, "B", NodeKind::Page, Some(format), &s).expect("b");
+            let c = create_node(&one, "C", NodeKind::Page, Some(format), &s).expect("c");
+            let titles = |dir: &Path| child_dirs(dir).iter().filter_map(|d| read_node(d)).map(|n| n.title).collect::<Vec<_>>();
+            assert_eq!(titles(&one), ["A", "B", "C"]);
+            place(&c, &one, Some(&a)).expect("C before A");
+            assert_eq!(titles(&one), ["C", "A", "B"], "{format:?}");
+            place(&c, &one, None).expect("C last");
+            assert_eq!(titles(&one), ["A", "B", "C"], "{format:?}");
+            let moved = place(&b, &two, None).expect("B to Two");
+            assert_eq!(titles(&one), ["A", "C"], "{format:?}");
+            assert_eq!(titles(&two), ["B"], "{format:?}");
+            assert!(moved.starts_with(&two) && moved.is_dir());
+            assert!(place(&one, &one, None).is_err(), "a section does not go into itself");
+            assert!(place(&nb, &one, None).is_err(), "a section does not hold a notebook");
+            // The numbers are the ones a page keeps in its file; the place it left keeps its gap.
+            assert_eq!(child_dirs(&one).iter().filter_map(|d| read_node(d)).map(|n| n.order).collect::<Vec<_>>(), [10, 30]);
         }
     }
 

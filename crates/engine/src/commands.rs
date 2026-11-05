@@ -114,6 +114,19 @@ fn node_delete(s: &mut Session, p: &Params) -> Result<Output, EngineError> {
     Ok(Output::Count(recycle::delete(&notebook, &path)?))
 }
 
+fn node_move(s: &mut Session, p: &Params) -> Result<Output, EngineError> {
+    let path = s.resolve(req(p, "path")?)?;
+    let parent = match p.get("parent") {
+        Some(v) if !v.is_empty() => s.resolve(v)?,
+        _ => path.parent().map(std::path::Path::to_path_buf).ok_or_else(|| EngineError::BadParam("that node has no parent".into()))?,
+    };
+    let before = match p.get("before") {
+        Some(v) if !v.is_empty() => Some(s.resolve(v)?),
+        _ => None,
+    };
+    Ok(Output::Path(notecraft_store::ops::place(&path, &parent, before.as_deref())?))
+}
+
 fn recycle_list(s: &mut Session, p: &Params) -> Result<Output, EngineError> {
     let notebook = s.resolve(req(p, "notebook")?)?;
     Ok(Output::Recycled(recycle::list(&notebook)?))
@@ -371,6 +384,13 @@ static REGISTRY: &[CommandSpec] = &[
         params: "path (required): the page, section or group to recycle",
         changes_tree: true,
         run: node_delete,
+    },
+    CommandSpec {
+        id: "node.move",
+        label: "Move or reorder a page, section or group",
+        params: "path (required): the node to move\nparent (optional): the container to put it in; default: where it is now, which reorders it\nbefore (optional): the sibling it goes in front of; default: last",
+        changes_tree: true,
+        run: node_move,
     },
     CommandSpec {
         id: "recycle.list",

@@ -50,6 +50,16 @@ Parameters:
 
 - path (required): the page, section or group to recycle
 
+## `node.move`
+
+Move or reorder a page, section or group (changes the tree).
+
+Parameters:
+
+- path (required): the node to move
+- parent (optional): the container to put it in; default: where it is now, which reorders it
+- before (optional): the sibling it goes in front of; default: last
+
 ## `recycle.list`
 
 List recycled items in a notebook.
