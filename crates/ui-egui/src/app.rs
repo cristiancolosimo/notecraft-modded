@@ -422,6 +422,8 @@ enum Purpose {
     NotebooksFolder,
     ImportFolder,
     ImportFile,
+    /// A PDF to bring in as a section with a page for each of its sheets.
+    ImportPdf,
     Printout(PathBuf),
     /// A file to put on this page's folder, which then asks what to do with it.
     AttachFile(PathBuf),
@@ -2220,6 +2222,7 @@ impl NoteCraftApp {
             Purpose::NotebooksFolder => self.open_notebooks_at(path),
             Purpose::ImportFolder => self.import_officeimo_source(path, true),
             Purpose::ImportFile => self.import_officeimo_source(path, false),
+            Purpose::ImportPdf => self.import_pdf_from(&path),
             Purpose::Printout(dir) => self.add_file(&dir, &path, FileChoice::Printout),
             Purpose::AttachFile(dir) => self.dialog = Some(Dialog::FileOptions { dir, files: vec![path] }),
         }
@@ -2559,6 +2562,7 @@ impl NoteCraftApp {
                 backstage::Act::ChooseFolder => self.choose_notebooks_folder(),
                 backstage::Act::ImportNotebookFolder => self.import_notebook_folder(),
                 backstage::Act::ImportFile => self.import_file(),
+                backstage::Act::ImportPdf => self.import_pdf(),
                 backstage::Act::ImportCloud => {
                     self.status = "Cloud import is not implemented yet.".to_string();
                     self.status_is_error = false;
@@ -2775,6 +2779,96 @@ impl NoteCraftApp {
         if let Some(source) = self.pick(Purpose::ImportFile, "Choose a file to import", false, &["one"], start) {
             self.import_officeimo_source(source, false);
         }
+    }
+
+    fn import_pdf(&mut self) {
+        let start = notecraft_import::discover::default_source();
+        if let Some(source) = self.pick(Purpose::ImportPdf, "Choose a PDF to import", false, &["pdf"], start) {
+            self.import_pdf_from(&source);
+        }
+    }
+
+    /// Where a PDF goes: the notebook or section group the selection is in, else the first notebook.
+    fn pdf_destination(&self) -> Option<PathBuf> {
+        let mut at = self.selected.as_deref();
+        while let Some(dir) = at {
+            if notecraft_store::tree::read_node(dir).is_some_and(|n| matches!(n.kind, NodeKind::Notebook | NodeKind::SectionGroup)) {
+                return Some(dir.to_path_buf());
+            }
+            at = dir.parent();
+        }
+        self.session.tree().first().map(|n| n.path.clone())
+    }
+
+    /// Brings a PDF into a notebook without touching it: a section named for the file, with a page for each sheet. The sheet
+    /// is drawn as a picture at the top of its page, the pen and the words go over and under it, and the original file is kept
+    /// whole in the first page's folder. Nothing is ever written back to the PDF.
+    pub fn import_pdf_from(&mut self, source: &Path) {
+        if !source.extension().and_then(std::ffi::OsStr::to_str).is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
+            self.complain("Only a PDF can be imported this way");
+            return;
+        }
+        let Some(parent) = self.pdf_destination() else {
+            self.complain("Open or create a notebook first");
+            return;
+        };
+        let rendered = match printout::render(source) {
+            Ok(r) => r,
+            Err(e) => {
+                self.complain(&format!("Could not read the PDF: {e}"));
+                return;
+            }
+        };
+        let name = source.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "document.pdf".into());
+        let stem = source.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "PDF".into());
+        let Some(Output::Path(section)) = self.run("node.create", &params(&[("parent", &path_str(&parent)), ("kind", "section"), ("title", &stem)]))
+        else {
+            return;
+        };
+        let total = rendered.pages().len();
+        let mut first = None;
+        for (index, png) in rendered.pages().iter().enumerate() {
+            let number = (index + 1).to_string();
+            let title = format!("Page {number}");
+            let Some(Output::Path(page)) =
+                self.run("node.create", &params(&[("parent", &path_str(&section)), ("kind", "page"), ("title", &title), ("format", "cmgfm")]))
+            else {
+                return;
+            };
+            let assets = page.join("assets");
+            let copied = std::fs::create_dir_all(&assets).and_then(|()| std::fs::copy(png, assets.join("pdf-page.png")).map(|_| ())).and_then(|()| {
+                if index == 0 {
+                    // The file, whole, and its icon beside it: the first sheet, which is also what the page shows.
+                    std::fs::copy(source, assets.join(&name))?;
+                    std::fs::copy(png, assets.join(format!("{name}.png")))?;
+                }
+                Ok(())
+            });
+            if let Err(e) = copied {
+                self.complain(&format!("Could not store page {number} of the PDF: {e}"));
+                return;
+            }
+            // As wide as the sheet's column, in the sheet's own proportions.
+            let (w, h) = image::image_dimensions(png).unwrap_or((595, 842));
+            let height = (760.0 * h as f32 / w.max(1) as f32).round();
+            let alt = format!("{stem}, page {number} of {total}").replace('"', "'");
+            let mut body = format!("<img src=\"assets/pdf-page.png\" alt=\"{alt}\" width=\"760\" height=\"{height}\">\n");
+            if index == 0 {
+                body.push_str(&format!("\n[The original PDF: {name}](assets/{name})\n"));
+            }
+            self.run("page.save", &params(&[("path", &path_str(&page)), ("body", &body)]));
+            // The picture is the first block, as wide as the sheet, so the pen lands on the PDF's own lines.
+            self.run("page.containers", &params(&[("path", &path_str(&page)), ("boxes", "0,0,760,1")]));
+            self.run("page.sheet", &params(&[("path", &path_str(&page)), ("sheet", "a4")]));
+            first.get_or_insert(page);
+        }
+        self.session.refresh();
+        self.open.insert(parent);
+        self.open.insert(section);
+        if let Some(page) = first {
+            self.open_page(&page);
+        }
+        self.say(format!("Imported {name}: {total} page{}. The PDF itself is not changed", if total == 1 { "" } else { "s" }));
     }
 
     fn import_officeimo_source(&mut self, source: PathBuf, folder: bool) {

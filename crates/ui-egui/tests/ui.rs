@@ -3053,6 +3053,64 @@ fn markdown_typed_on_an_empty_line_turns_it() {
     }
 }
 
+/// A PDF with `pages` blank A4 sheets, each with a line of text, written by hand.
+fn tiny_pdf(pages: usize) -> Vec<u8> {
+    let mut objects: Vec<String> = vec!["<< /Type /Catalog /Pages 2 0 R >>".into()];
+    let kids: Vec<String> = (0..pages).map(|i| format!("{} 0 R", 4 + 2 * i)).collect();
+    objects.push(format!("<< /Type /Pages /Kids [{}] /Count {pages} >>", kids.join(" ")));
+    objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".into());
+    for i in 0..pages {
+        objects.push(format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents {} 0 R /Resources << /Font << /F1 3 0 R >> >> >>",
+            5 + 2 * i
+        ));
+        let text = format!("BT /F1 24 Tf 72 700 Td (Sheet {}) Tj ET", i + 1);
+        objects.push(format!("<< /Length {} >>\nstream\n{text}\nendstream", text.len()));
+    }
+    let mut out = String::from("%PDF-1.4\n");
+    let mut offsets = Vec::new();
+    for (i, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.push_str(&format!("{} 0 obj\n{body}\nendobj\n", i + 1));
+    }
+    let xref = out.len();
+    out.push_str(&format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1));
+    for o in offsets {
+        out.push_str(&format!("{o:010} 00000 n \n"));
+    }
+    out.push_str(&format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objects.len() + 1));
+    out.into_bytes()
+}
+
+/// A PDF is brought in as a section with a page for each sheet; the file is kept whole and never written to.
+#[test]
+fn a_pdf_is_imported_as_pages_to_write_on_and_left_untouched() {
+    let (t, mut app, s) = sample_app("ui-pdf-import");
+    app.open_path(&s.md_page.to_string_lossy());
+    let pdf = t.path().join("lecture.pdf");
+    let bytes = tiny_pdf(2);
+    std::fs::write(&pdf, &bytes).expect("pdf");
+    app.import_pdf_from(&pdf);
+    let section = app
+        .session()
+        .tree()
+        .iter()
+        .flat_map(|n| n.children.iter())
+        .find(|n| n.info.title == "lecture")
+        .cloned()
+        .expect("a section named for the file");
+    assert_eq!(section.children.iter().map(|p| p.info.title.clone()).collect::<Vec<_>>(), ["Page 1", "Page 2"]);
+    for (i, page) in section.children.iter().enumerate() {
+        assert!(page.path.join("assets/pdf-page.png").is_file(), "page {} has its picture", i + 1);
+        assert_eq!(notecraft_store::page::sheet(&page.path).expect("sheet").as_deref(), Some("a4"));
+    }
+    assert_eq!(std::fs::read(section.children[0].path.join("assets/lecture.pdf")).expect("kept"), bytes, "the first page keeps the PDF whole");
+    assert_eq!(std::fs::read(&pdf).expect("source"), bytes, "the file imported from is not changed");
+    let mut h = sized_harness(app, DARK, egui::vec2(1280.0, 800.0));
+    settle(&mut h);
+    review(&mut h, "pdf-imported");
+}
+
 /// The Home tab, drawn to the design: its controls are there and the styles, marks and lists act on the page.
 #[test]
 fn the_home_tab_has_its_groups_and_its_controls_work() {

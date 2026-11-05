@@ -29,6 +29,8 @@ pub enum Act {
     ImportNotebookFolder,
     /// Choose one importable file and pass it to the OfficeIMO bridge.
     ImportFile,
+    /// Choose a PDF and bring it in as a section of pages to write on.
+    ImportPdf,
     /// Cloud import is intentionally visible but unavailable.
     ImportCloud,
     /// Open a page of this notebook (the first one).
@@ -707,6 +709,9 @@ fn open_page(ui: &mut Ui, recent: &[Node], folder: &str, show_path: &dyn Fn(&std
         }
         if open_action(ui, "Import file", 230.0, 36.0, t, true).clicked() {
             acts.push(Act::ImportFile);
+        }
+        if open_action(ui, "Import PDF to annotate", 230.0, 36.0, t, true).clicked() {
+            acts.push(Act::ImportPdf);
         }
         let cloud = ui.add_enabled(false, egui::Button::new(egui::RichText::new("Import from the cloud").size(13.0)).min_size(vec2(190.0, 36.0)));
         cloud.on_hover_text("Cloud import is not implemented yet.");
